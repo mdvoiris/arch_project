@@ -83,6 +83,12 @@ typedef enum _bus_cmd {
 	Flush,
 } Bus_cmd;
 
+typedef enum _mem_stage {
+	CACHE_ACCESS,
+	BUS_ACCESS,
+	MEM_ACCESS
+} Mem_stage;
+
 typedef struct _tsram {
 	int MSI;
 	int tag;
@@ -111,17 +117,25 @@ char args[ARG_COUNT][_MAX_PATH] = { "sim.exe","imem0.txt","imem1.txt","imem2.txt
 		"core0trace.txt","core1trace.txt","core2trace.txt","core3trace.txt","bustrace.txt",
 		"dsram0.txt","dsram1.txt","dsram2.txt","dsram3.txt","tsram0.txt","tsram1.txt","tsram2.txt","tsram3.txt",
 		"stats0.txt","stats1.txt","stats2.txt","stats3.txt" };
+
 int cycle = 0;
-bool core_done[NUM_OF_CORES] = { false };
+
 int pc[NUM_OF_CORES] = { 0 };
+bool core_done[NUM_OF_CORES] = { false };
+int imem[NUM_OF_CORES][IMEM_SIZE] = { 0 };
+int regs[NUM_OF_REGS] = { 0 };
 int dsram[NUM_OF_CORES][CACHE_SIZE] = { 0 };
 TSRAM tsram[NUM_OF_CORES][CACHE_SIZE] = { 0 };
-int main_memory[MEM_SIZE] = { 0 };
-int regs[NUM_OF_REGS] = { 0 };
-BUS bus = { 0 };
 Instruction Pipe[NUM_OF_CORES][PIPE_LEN] = { 0 };
-int imem[NUM_OF_CORES][IMEM_SIZE] = { 0 };
+int decode_stall_c[NUM_OF_CORES] = { 0 };
+int mem_stall_c[NUM_OF_CORES] = { 0 };
+Mem_stage mem_stage[NUM_OF_CORES] = { CACHE_ACCESS };
 
+int main_memory[MEM_SIZE] = { 0 };
+int mem_busy_c = 0;
+
+BUS bus = { 0 };
+bool bus_busy = false;
 
 //Function Handles:
 void update_args(char* argv[]);
@@ -131,6 +145,18 @@ Status init_imems();
 Status init_main_memory();
 
 Status core(Core core_num);
+
+Status fetch(Core core_num);
+
+Status decode(Core core_num);
+
+Status execute(Core core_num);
+
+Status mem(Core core_num);
+
+Status write_back(Core core_num);
+
+Status advance_pipeline(Core core_num);
 
 Status cache_update();
 

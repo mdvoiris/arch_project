@@ -93,9 +93,76 @@ Status init_main_memory() {
 }
 
 Status core(Core core_num) {
+    Status status = INVALID_STATUS_CODE;
 
+    if (decode_stall_c[core_num] == 0 && mem_stall_c[core_num] == 0) {
+        status = fetch(core_num);
+        status = decode(core_num);
+    }
+    else if (mem_stall_c[core_num] == 0) {
+        status = execute(core_num);
+        status = mem(core_num);
+    }
+    status = write_back(core_num);
+
+    advance_pipeline(core_num);
+    pc[core_num]++;
+
+    return SUCCESS;
+}
+
+Status fetch(Core core_num) {
+    Status status = INVALID_STATUS_CODE;
+
+
+
+    return SUCCESS;
+}
+
+Status decode(Core core_num) {
+    Status status = INVALID_STATUS_CODE;
+
+
+
+    return SUCCESS;
+}
+
+Status execute(Core core_num) {
+    Status status = INVALID_STATUS_CODE;
+
+
+
+    return SUCCESS;
+}
+
+Status mem(Core core_num) {
+    Status status = INVALID_STATUS_CODE;
+
+
+
+    return SUCCESS;
+}
+
+Status write_back(Core core_num) {
+    Status status = INVALID_STATUS_CODE;
+
+
+
+    return SUCCESS;
+}
+
+Status advance_pipeline(Core core_num) {
+    Status status = INVALID_STATUS_CODE;
+
+
+
+    return SUCCESS;
 }
 
 Status cache_update() {
+    Status status = INVALID_STATUS_CODE;
 
+
+
+    return SUCCESS;
 }
