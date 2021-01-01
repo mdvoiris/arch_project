@@ -114,6 +114,21 @@ Status core(Core core_num) {
 Status fetch(Core core_num) {
     Status status = INVALID_STATUS_CODE;
 
+    pipeline[core_num][FETCH].opcode = imem[core_num][pc[core_num]] & 0xff000000;
+    pipeline[core_num][FETCH].rd     = imem[core_num][pc[core_num]] & 0x00f00000;
+    pipeline[core_num][FETCH].rs     = imem[core_num][pc[core_num]] & 0x000f0000;
+    pipeline[core_num][FETCH].rt     = imem[core_num][pc[core_num]] & 0x0000f000;
+    pipeline[core_num][FETCH].imm    = imem[core_num][pc[core_num]] & 0x00000fff;
+    pipeline[core_num][FETCH].pc     = pc[core_num];
+
+    if ((pipeline[core_num][FETCH].opcode < ADD) || (pipeline[core_num][FETCH].opcode > HALT))
+        return WRONG_OPCODE;
+    if ((pipeline[core_num][FETCH].rd < 0) || (pipeline[core_num][FETCH].rd > (NUM_OF_REGS-1)))
+        return WRONG_RD;
+    if ((pipeline[core_num][FETCH].rs < 0) || (pipeline[core_num][FETCH].rs > (NUM_OF_REGS - 1)))
+        return WRONG_RS;
+    if ((pipeline[core_num][FETCH].rt < 0) || (pipeline[core_num][FETCH].rt > (NUM_OF_REGS - 1)))
+        return WRONG_RT;
 
 
     return SUCCESS;
@@ -122,9 +137,107 @@ Status fetch(Core core_num) {
 Status decode(Core core_num) {
     Status status = INVALID_STATUS_CODE;
 
+    if (pipeline[core_num][DECODE].opcode == HALT) {
+        pipeline[core_num][FETCH].pc = -1;
+        return SUCCESS;
+    }
 
+    decode_stall_c[core_num] = detect_hazards(core_num, DECODE);
+
+    if (decode_stall_c[core_num] == 0) {
+        if ((pipeline[core_num][DECODE].opcode >= BEQ) && (pipeline[core_num][DECODE].opcode <= JAL))
+            branch_resolution(core_num, pipeline[core_num][DECODE]);
+    }
 
     return SUCCESS;
+}
+
+int detect_hazards(Core core_num, Pipe stage) {
+    int hazard_potential[3] = { 0 };
+
+    if (pipeline[core_num][stage].opcode == JAL) {
+        hazard_potential[0] = pipeline[core_num][stage].rd;
+    }
+    else if ((pipeline[core_num][stage].opcode < BEQ) || (pipeline[core_num][stage].opcode == LW) || (pipeline[core_num][stage].opcode == LL)) {
+        hazard_potential[0] = pipeline[core_num][stage].rs;
+        hazard_potential[1] = pipeline[core_num][stage].rt;
+    }
+    else {
+        hazard_potential[0] = pipeline[core_num][stage].rd;
+        hazard_potential[1] = pipeline[core_num][stage].rs;
+        hazard_potential[2] = pipeline[core_num][stage].rt;
+    }
+
+    for (int i = 0; i < 3; i++) {
+        if ((hazard_potential[i] == 0) || (hazard_potential[i] == 1))
+            continue;
+        for (int j = stage + 1; j < PIPE_LEN; j++) {
+            if ((pipeline[core_num][j].opcode == JAL) && (hazard_potential[i] == 15))
+                return (WRITE_BACK - j + 1);
+
+            else if ((pipeline[core_num][stage].opcode < BEQ) || (pipeline[core_num][stage].opcode == LW) || (pipeline[core_num][stage].opcode == LL) || (pipeline[core_num][stage].opcode == SC)) {
+                if (hazard_potential[i] == pipeline[core_num][j].rd)
+                    return (WRITE_BACK - j + 1);
+            }
+        }
+    }
+
+    return 0;
+}
+
+void branch_resolution(Core core_num, Instruction inst) {
+    int rd_value;
+    int rs_value;
+    int rt_value;
+
+
+    if (inst.rd == 1) rd_value = inst.imm;
+    else rd_value = cur_regs[inst.rd];
+
+    if (inst.rs == 1) rs_value = inst.imm;
+    else rs_value = cur_regs[inst.rs];
+
+    if (inst.rt == 1) rt_value = inst.imm;
+    else rt_value = cur_regs[inst.rt];
+
+
+    switch (inst.opcode) {
+    case BEQ: {
+        if (rs_value == rt_value)
+            pc[core_num] = (rd_value & 0x3ff) - 1;
+        break;
+    }
+    case BNE: {
+        if (rs_value != rt_value)
+            pc[core_num] = (rd_value & 0x3ff) - 1;
+        break;
+    }
+    case BLT: {
+        if (rs_value < rt_value)
+            pc[core_num] = (rd_value & 0x3ff) - 1;
+        break;
+    }
+    case BGT: {
+        if (rs_value > rt_value)
+            pc[core_num] = (rd_value & 0x3ff) - 1;
+        break;
+    }
+    case BLE: {
+        if (rs_value <= rt_value)
+            pc[core_num] = (rd_value & 0x3ff) - 1;
+        break;
+    }
+    case BGE: {
+        if (rs_value >= rt_value)
+            pc[core_num] = (rd_value & 0x3ff) - 1;
+        break;
+    }
+    case JAL: {
+        pc[core_num] = (rd_value & 0x3ff) - 1;
+        break;
+    }
+    }
+    return;
 }
 
 Status execute(Core core_num) {

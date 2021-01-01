@@ -58,7 +58,10 @@ typedef enum _status {
 	SUCCESS = 0,
 	WRONG_ARGUMENT_COUNT,
 	FOPEN_FAIL,
-	ALLOC_FAILED,
+	WRONG_OPCODE,
+	WRONG_RD,
+	WRONG_RS,
+	WRONG_RT
 } Status;
 
 typedef enum _core {
@@ -67,6 +70,38 @@ typedef enum _core {
 	CORE2,
 	CORE3
 } Core;
+
+typedef enum _pipe {
+	FETCH,
+	DECODE,
+	EXECUTE,
+	MEM,
+	WRITE_BACK
+} Pipe;
+
+typedef enum _opcode {
+	ADD,
+	SUB,
+	AND,
+	OR,
+	XOR,
+	MUL,
+	SLL,
+	SRA,
+	SRL,
+	BEQ,
+	BNE,
+	BLT,
+	BGT,
+	BLE,
+	BGE,
+	JAL,
+	LW,
+	SW,
+	LL,
+	SC,
+	HALT
+} Opcode;
 
 typedef enum _bus_origid {
 	CORE0 = CORE0,
@@ -123,10 +158,11 @@ int cycle = 0;
 int pc[NUM_OF_CORES] = { 0 };
 bool core_done[NUM_OF_CORES] = { false };
 int imem[NUM_OF_CORES][IMEM_SIZE] = { 0 };
-int regs[NUM_OF_REGS] = { 0 };
+int cur_regs[NUM_OF_REGS] = { 0 };
+int updated_regs[NUM_OF_REGS] = { 0 };
 int dsram[NUM_OF_CORES][CACHE_SIZE] = { 0 };
 TSRAM tsram[NUM_OF_CORES][CACHE_SIZE] = { 0 };
-Instruction Pipe[NUM_OF_CORES][PIPE_LEN] = { 0 };
+Instruction pipeline[NUM_OF_CORES][PIPE_LEN] = { -1 };
 int decode_stall_c[NUM_OF_CORES] = { 0 };
 int mem_stall_c[NUM_OF_CORES] = { 0 };
 Mem_stage mem_stage[NUM_OF_CORES] = { CACHE_ACCESS };
@@ -159,6 +195,10 @@ Status write_back(Core core_num);
 Status advance_pipeline(Core core_num);
 
 Status cache_update();
+
+int detect_hazards(Core core_num, Pipe stage);
+
+void branch_resolution(Core core_num, Instruction inst);
 
 
 #endif // __MAIN_H__
