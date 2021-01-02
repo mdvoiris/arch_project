@@ -3,7 +3,8 @@
 
 Status main(int argc, char* argv[]) {
 	Status status = INVALID_STATUS_CODE;
-    
+    FILE* trace_files[NUM_OF_CORES] = { NULL };
+
 
     //Check for correct input argument count
     if (argc != 1 || argc != ARG_COUNT) {
@@ -13,53 +14,73 @@ Status main(int argc, char* argv[]) {
     else if (argc == ARG_COUNT) update_args(argv);
 
     status = init_imems();
-    if (status) return status;
+    if (status) goto EXIT;
 
     status = init_main_memory();
-    if (status) return status;
+    if (status) goto EXIT;
 
+    for (int i = 0; i < NUM_OF_CORES; i++) {
+        fopen_s(&trace_files[i], args[TRACE0 + i], "w");
+        if (trace_files[i] == NULL) {
+            status = FOPEN_FAIL;
+            goto EXIT;
+        }
+    }
+    
 
     while ((core_done[CORE0] & core_done[CORE1] & core_done[CORE2] & core_done[CORE3]) == false) {
         if (core_done[CORE0] == false) {
-            status = core(CORE0);
-            if (status) return status;
+            status = core(CORE0, trace_files[CORE0]);
+            if (status) goto EXIT;
         }
         if (core_done[CORE1] == false) {
-            status = core(CORE1);
-            if (status) return status;
+            status = core(CORE1, trace_files[CORE1]);
+            if (status) goto EXIT;
         }
         if (core_done[CORE2] == false) {
-            status = core(CORE2);
-            if (status) return status;
+            status = core(CORE2, trace_files[CORE2]);
+            if (status) goto EXIT;
         }
         if (core_done[CORE3] == false) {
-            status = core(CORE3);
-            if (status) return status;
+            status = core(CORE3, trace_files[CORE3]);
+            if (status) goto EXIT;
         }
         cycle++;
 
         status = cache_update();
-        if (status) return status;
+        if (status) goto EXIT;
     }
 
+    for (int i = 0; i < NUM_OF_CORES; i++)
+        fclose(trace_files[i]);
+
+
     status = print_file(MEMOUT);
-    if (status) return status;
+    if (status) goto EXIT;
 
     for (int i = 0; i < NUM_OF_CORES; i++) {
         status = print_file(REGOUT0 + i);
-        if (status) return status;
+        if (status) goto EXIT;
 
         status = print_file(DSRAM0 + i);
-        if (status) return status;
+        if (status) goto EXIT;
 
         status = print_file(TSRAM0 + i);
-        if (status) return status;
+        if (status) goto EXIT;
 
         status = print_file(STATS0 + i);
-        if (status) return status;
+        if (status) goto EXIT;
     }
 
 	return SUCCESS;
+
+
+EXIT:
+    for (int i = 0; i < NUM_OF_CORES; i++)
+        if (trace_files[i] != NULL)
+            fclose(trace_files[i]);
+    return status;
+
 }
 
 void update_args(char* argv[]) {
@@ -157,7 +178,7 @@ Status init_main_memory() {
     return SUCCESS;
 }
 
-Status core(Core core_num) {
+Status core(Core core_num, FILE* trace_file) {
     Status status = INVALID_STATUS_CODE;
 
     if (decode_stall[core_num] == 0 && mem_stall[core_num] == 0) {
