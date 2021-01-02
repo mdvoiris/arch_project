@@ -51,8 +51,10 @@ Status main(int argc, char* argv[]) {
         if (status) goto EXIT;
     }
 
-    for (int i = 0; i < NUM_OF_CORES; i++)
+    for (int i = 0; i < NUM_OF_CORES; i++) {
         fclose(trace_files[i]);
+        trace_files[i] = NULL;
+    }
 
 
     status = print_file(MEMOUT);
@@ -77,8 +79,9 @@ Status main(int argc, char* argv[]) {
 
 EXIT:
     for (int i = 0; i < NUM_OF_CORES; i++)
-        if (trace_files[i] != NULL)
+        if (trace_files[i] != NULL) {
             fclose(trace_files[i]);
+        }
     return status;
 
 }
@@ -195,6 +198,8 @@ Status core(Core core_num, FILE* trace_file) {
         status = mem(core_num);
         if (status) return status;
     }
+    print_trace(core_num, trace_file);
+
     status = write_back(core_num);
     if (status) return status;
 
@@ -482,6 +487,22 @@ void advance_stage(Core core_num, Pipe from, Pipe to) {
     pipeline[core_num][to].pc       = pipeline[core_num][from].pc;
 
     return;
+}
+
+void print_trace(Core core_num, FILE* file) {
+
+    fprintf(file, "%d ", cycle);
+    for (int i = 0; i < PIPE_LEN; i++) {
+        if (pipeline[core_num][i].pc == -1)
+            fprintf(file, "--- ");
+        else
+            fprintf(file, "%03X ", pipeline[core_num][i].pc);
+    }
+    for (int i = 2; i < NUM_OF_REGS; i++) {
+        fprintf(file, "%08X ", cur_regs[core_num][i]);
+    }
+    fprintf(file, "\n");
+
 }
 
 Status cache_update() {
