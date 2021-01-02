@@ -147,31 +147,43 @@ typedef struct _instruction {
 
 
 //Global variables:
+//Input arguments
 char args[ARG_COUNT][_MAX_PATH] = { "sim.exe","imem0.txt","imem1.txt","imem2.txt","imem3.txt",
 		"memin.txt","memout.txt","regout0.txt","regout1.txt","regout2.txt","regout3.txt",
 		"core0trace.txt","core1trace.txt","core2trace.txt","core3trace.txt","bustrace.txt",
 		"dsram0.txt","dsram1.txt","dsram2.txt","dsram3.txt","tsram0.txt","tsram1.txt","tsram2.txt","tsram3.txt",
 		"stats0.txt","stats1.txt","stats2.txt","stats3.txt" };
 
+//Clock cycles
 int cycle = 0;
 
+//Main memory
+int main_memory[MEM_SIZE] = { 0 };
+int mem_busy_c = 0;
+
+//Bus
+BUS bus = { 0 };
+bool bus_busy = false;
+
+//Core status
 int pc[NUM_OF_CORES] = { 0 };
 bool core_done[NUM_OF_CORES] = { false };
-int imem[NUM_OF_CORES][IMEM_SIZE] = { 0 };
-int cur_regs[NUM_OF_REGS] = { 0 };
-int updated_regs[NUM_OF_REGS] = { 0 };
-int dsram[NUM_OF_CORES][CACHE_SIZE] = { 0 };
-TSRAM tsram[NUM_OF_CORES][CACHE_SIZE] = { 0 };
-Instruction pipeline[NUM_OF_CORES][PIPE_LEN] = { -1 };
 int decode_stall_c[NUM_OF_CORES] = { 0 };
 int mem_stall_c[NUM_OF_CORES] = { 0 };
 Mem_stage mem_stage[NUM_OF_CORES] = { CACHE_ACCESS };
 
-int main_memory[MEM_SIZE] = { 0 };
-int mem_busy_c = 0;
+//Core regs
+int cur_regs[NUM_OF_CORES][NUM_OF_REGS] = { 0 };
+int updated_regs[NUM_OF_CORES][NUM_OF_REGS] = { 0 };
 
-BUS bus = { 0 };
-bool bus_busy = false;
+//Core instructions
+int imem[NUM_OF_CORES][IMEM_SIZE] = { 0 };
+Instruction pipeline[NUM_OF_CORES][PIPE_LEN] = { -1 };
+
+//Core cache
+int dsram[NUM_OF_CORES][CACHE_SIZE] = { 0 };
+TSRAM tsram[NUM_OF_CORES][CACHE_SIZE] = { 0 };
+
 
 //Function Handles:
 void update_args(char* argv[]);
@@ -200,5 +212,8 @@ int detect_hazards(Core core_num, Pipe stage);
 
 void branch_resolution(Core core_num, Instruction inst);
 
+void get_reg_values(Core core_num, Instruction inst, int* rd_value, int* rs_value, int* rt_value);
+
+void advance_stage(Core core_num, Pipe from, Pipe to);
 
 #endif // __MAIN_H__

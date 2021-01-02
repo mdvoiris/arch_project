@@ -97,22 +97,34 @@ Status core(Core core_num) {
 
     if (decode_stall_c[core_num] == 0 && mem_stall_c[core_num] == 0) {
         status = fetch(core_num);
+        if (status) return status;
+
         status = decode(core_num);
+        if (status) return status;
     }
     else if (mem_stall_c[core_num] == 0) {
         status = execute(core_num);
+        if (status) return status;
+
         status = mem(core_num);
+        if (status) return status;
     }
     status = write_back(core_num);
+    if (status) return status;
 
-    advance_pipeline(core_num);
-    pc[core_num]++;
+    status = advance_pipeline(core_num);
+    if (status) return status;
 
     return SUCCESS;
 }
 
 Status fetch(Core core_num) {
     Status status = INVALID_STATUS_CODE;
+
+    if (pc[core_num] == -1) {
+        pipeline[core_num][FETCH].pc = -1;
+        return SUCCESS;
+    }
 
     pipeline[core_num][FETCH].opcode = imem[core_num][pc[core_num]] & 0xff000000;
     pipeline[core_num][FETCH].rd     = imem[core_num][pc[core_num]] & 0x00f00000;
@@ -137,8 +149,7 @@ Status fetch(Core core_num) {
 Status decode(Core core_num) {
     Status status = INVALID_STATUS_CODE;
 
-    if (pipeline[core_num][DECODE].opcode == HALT) {
-        pipeline[core_num][FETCH].pc = -1;
+    if ((pipeline[core_num][DECODE].opcode == HALT) || (pipeline[core_num][DECODE].pc == -1)) {
         return SUCCESS;
     }
 
@@ -191,15 +202,7 @@ void branch_resolution(Core core_num, Instruction inst) {
     int rt_value;
 
 
-    if (inst.rd == 1) rd_value = inst.imm;
-    else rd_value = cur_regs[inst.rd];
-
-    if (inst.rs == 1) rs_value = inst.imm;
-    else rs_value = cur_regs[inst.rs];
-
-    if (inst.rt == 1) rt_value = inst.imm;
-    else rt_value = cur_regs[inst.rt];
-
+    get_reg_values(core_num, inst, &rd_value, &rs_value, &rt_value);
 
     switch (inst.opcode) {
     case BEQ: {
@@ -240,18 +243,87 @@ void branch_resolution(Core core_num, Instruction inst) {
     return;
 }
 
+void get_reg_values(Core core_num, Instruction inst, int* rd_value, int* rs_value, int* rt_value) {
+    if (inst.rd == 1) *rd_value = inst.imm;
+    else *rd_value = cur_regs[core_num][inst.rd];
+
+    if (inst.rs == 1) *rs_value = inst.imm;
+    else *rs_value = cur_regs[core_num][inst.rs];
+
+    if (inst.rt == 1) *rt_value = inst.imm;
+    else *rt_value = cur_regs[core_num][inst.rt];
+
+    return;
+}
+
 Status execute(Core core_num) {
     Status status = INVALID_STATUS_CODE;
+    int rd_value;
+    int rs_value;
+    int rt_value;
 
 
+    if ((pipeline[core_num][EXECUTE].opcode == HALT) || (pipeline[core_num][EXECUTE].pc == -1)) {
+        return SUCCESS;
+    }
 
+    get_reg_values(core_num, pipeline[core_num][EXECUTE], &rd_value, &rs_value, &rt_value);
+
+    switch (pipeline[core_num][EXECUTE].opcode) {
+    case ADD: {
+        updated_regs[core_num][pipeline[core_num][EXECUTE].rd] = rs_value + rt_value;
+        break;
+    }
+    case SUB: {
+        updated_regs[core_num][pipeline[core_num][EXECUTE].rd] = rs_value - rt_value;
+        break;
+    }
+    case AND: {
+        updated_regs[core_num][pipeline[core_num][EXECUTE].rd] = rs_value & rt_value;
+        break;
+    }
+    case OR: {
+        updated_regs[core_num][pipeline[core_num][EXECUTE].rd] = rs_value | rt_value;
+        break;
+    }
+    case XOR: {
+        updated_regs[core_num][pipeline[core_num][EXECUTE].rd] = rs_value ^ rt_value;
+        break;
+    }
+    case MUL: {
+        updated_regs[core_num][pipeline[core_num][EXECUTE].rd] = rs_value * rt_value;
+        break;
+    }
+    case SLL: {
+        updated_regs[core_num][pipeline[core_num][EXECUTE].rd] = rs_value << rt_value;
+        break;
+    }
+    case SRA: {
+        updated_regs[core_num][pipeline[core_num][EXECUTE].rd] = rs_value >> rt_value;
+        break;
+    }
+    case SRL: {
+        updated_regs[core_num][pipeline[core_num][EXECUTE].rd] = (unsigned int)rs_value >> rt_value;
+        break;
+    }
+    case JAL: {
+        updated_regs[core_num][15] = pipeline[core_num][EXECUTE].pc + 1;
+        break;
+    }
+    }
     return SUCCESS;
 }
 
 Status mem(Core core_num) {
     Status status = INVALID_STATUS_CODE;
 
+    if ((pipeline[core_num][MEM].opcode == HALT) || (pipeline[core_num][MEM].pc == -1)) {
+        return SUCCESS;
+    }
 
+    //HAIM
+    //notice to update the updated_regs and use the cur_regs
+    //also, notice sc and ll opcodes
 
     return SUCCESS;
 }
@@ -259,7 +331,17 @@ Status mem(Core core_num) {
 Status write_back(Core core_num) {
     Status status = INVALID_STATUS_CODE;
 
+    if (pipeline[core_num][EXECUTE].opcode == HALT) {
+        core_done[core_num] = true;
+        return SUCCESS;
+    }
 
+    if (pipeline[core_num][WRITE_BACK].opcode == JAL)
+        cur_regs[core_num][15] = updated_regs[core_num][15];
+
+    else if ((pipeline[core_num][WRITE_BACK].opcode <= SRL) || (pipeline[core_num][WRITE_BACK].opcode == LW) || (pipeline[core_num][WRITE_BACK].opcode == LL)) {
+        cur_regs[core_num][pipeline[core_num][WRITE_BACK].rd] = updated_regs[core_num][pipeline[core_num][WRITE_BACK].rd];
+    }
 
     return SUCCESS;
 }
@@ -268,8 +350,39 @@ Status advance_pipeline(Core core_num) {
     Status status = INVALID_STATUS_CODE;
 
 
+    if (pipeline[core_num][DECODE].opcode == HALT)
+        pc[core_num] = -1;
+    else
+        pc[core_num]++;
+
+    pipeline[core_num][WRITE_BACK].pc = -1;
+    if (mem_stall_c[core_num] == 0) {
+        advance_stage(core_num, MEM, WRITE_BACK);
+        advance_stage(core_num, EXECUTE, MEM);
+        if (decode_stall_c[core_num] == 0) {
+            advance_stage(core_num, DECODE, EXECUTE);
+            advance_stage(core_num, FETCH, DECODE);
+        }
+        else {
+            pipeline[core_num][EXECUTE].pc = -1;
+        }
+    }
+
+    if (mem_stall_c[core_num] > 0) mem_stall_c[core_num]--;
+    if (decode_stall_c[core_num] > 0) decode_stall_c[core_num]--;
 
     return SUCCESS;
+}
+
+void advance_stage(Core core_num, Pipe from, Pipe to) {
+    pipeline[core_num][to].opcode   = pipeline[core_num][from].opcode;
+    pipeline[core_num][to].rd       = pipeline[core_num][from].rd;
+    pipeline[core_num][to].rs       = pipeline[core_num][from].rs;
+    pipeline[core_num][to].rt       = pipeline[core_num][from].rt;
+    pipeline[core_num][to].imm      = pipeline[core_num][from].imm;
+    pipeline[core_num][to].pc       = pipeline[core_num][from].pc;
+
+    return;
 }
 
 Status cache_update() {
