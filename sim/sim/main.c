@@ -40,9 +40,24 @@ Status main(int argc, char* argv[]) {
 
         status = cache_update();
         if (status) return status;
-
     }
 
+    status = print_file(MEMOUT);
+    if (status) return status;
+
+    for (int i = 0; i < NUM_OF_CORES; i++) {
+        status = print_file(REGOUT0 + i);
+        if (status) return status;
+
+        status = print_file(DSRAM0 + i);
+        if (status) return status;
+
+        status = print_file(TSRAM0 + i);
+        if (status) return status;
+
+        status = print_file(STATS0 + i);
+        if (status) return status;
+    }
 
 	return SUCCESS;
 }
@@ -51,6 +66,56 @@ void update_args(char* argv[]) {
     for (int i = 1; i < ARG_COUNT; i++) {
         strcpy_s(args[i], _MAX_PATH, argv[i]);
     }
+}
+
+Status print_file(Arg file_enum) {
+    Status status = INVALID_STATUS_CODE;
+    char* file_name = args[file_enum];
+    FILE* file = NULL;
+    Core core;
+
+    fopen_s(&file, file_name, "w");
+    if (file == NULL)
+        return FOPEN_FAIL;
+
+    if (file_enum == MEMOUT) {
+        for (int i = 0; i < MEM_SIZE; i++) {
+            fprintf(file, "%08X\n", main_memory[i]);
+        }
+    }
+    if (file_enum >= REGOUT0 && file_enum <= REGOUT3) {
+        core = file_enum - REGOUT0;
+        for (int i = 2; i < NUM_OF_REGS; i++) {
+            fprintf(file, "%08X\n", cur_regs[core][i]);
+        }
+    }
+    if (file_enum >= DSRAM0 && file_enum <= DSRAM3) {
+        core = file_enum - DSRAM0;
+        for (int i = 0; i < CACHE_SIZE; i++) {
+            fprintf(file, "%08X\n", dsram[core][i]);
+        }
+    }
+    if (file_enum >= TSRAM0 && file_enum <= TSRAM3) {
+        core = file_enum - TSRAM0;
+        for (int i = 0; i < CACHE_SIZE; i++) {
+            fprintf(file, "%04X\n", tsram[core][i]);
+        }
+    }
+    if (file_enum >= STATS0 && file_enum <= STATS3) {
+        core = file_enum - STATS0;
+        fprintf(file, "cycles %d\n", cycles_count[core]);
+        fprintf(file, "instructions %d\n", instructions_count[core]);
+        fprintf(file, "read_hit %d\n", read_hit_count[core]);
+        fprintf(file, "write_hit %d\n", write_hit_count[core]);
+        fprintf(file, "read_miss %d\n", read_miss_count[core]);
+        fprintf(file, "write_miss %d\n", write_miss_count[core]);
+        fprintf(file, "decode_stall %d\n", decode_stall_count[core]);
+        fprintf(file, "mem_stall %d\n", mem_stall_count[core]);
+    }
+
+    fclose(file);
+
+    return SUCCESS;
 }
 
 Status init_imems() {
@@ -95,14 +160,14 @@ Status init_main_memory() {
 Status core(Core core_num) {
     Status status = INVALID_STATUS_CODE;
 
-    if (decode_stall_c[core_num] == 0 && mem_stall_c[core_num] == 0) {
+    if (decode_stall[core_num] == 0 && mem_stall[core_num] == 0) {
         status = fetch(core_num);
         if (status) return status;
 
         status = decode(core_num);
         if (status) return status;
     }
-    else if (mem_stall_c[core_num] == 0) {
+    else if (mem_stall[core_num] == 0) {
         status = execute(core_num);
         if (status) return status;
 
@@ -153,9 +218,9 @@ Status decode(Core core_num) {
         return SUCCESS;
     }
 
-    decode_stall_c[core_num] = detect_hazards(core_num, DECODE);
+    decode_stall[core_num] = detect_hazards(core_num, DECODE);
 
-    if (decode_stall_c[core_num] == 0) {
+    if (decode_stall[core_num] == 0) {
         if ((pipeline[core_num][DECODE].opcode >= BEQ) && (pipeline[core_num][DECODE].opcode <= JAL))
             branch_resolution(core_num, pipeline[core_num][DECODE]);
     }
@@ -333,8 +398,12 @@ Status write_back(Core core_num) {
 
     if (pipeline[core_num][EXECUTE].opcode == HALT) {
         core_done[core_num] = true;
+        cycles_count[core_num] = cycle;
+        instructions_count[core_num]++;
         return SUCCESS;
     }
+    else if (pipeline[core_num][EXECUTE].pc == -1)
+        return SUCCESS;
 
     if (pipeline[core_num][WRITE_BACK].opcode == JAL)
         cur_regs[core_num][15] = updated_regs[core_num][15];
@@ -342,6 +411,7 @@ Status write_back(Core core_num) {
     else if ((pipeline[core_num][WRITE_BACK].opcode <= SRL) || (pipeline[core_num][WRITE_BACK].opcode == LW) || (pipeline[core_num][WRITE_BACK].opcode == LL)) {
         cur_regs[core_num][pipeline[core_num][WRITE_BACK].rd] = updated_regs[core_num][pipeline[core_num][WRITE_BACK].rd];
     }
+    instructions_count[core_num]++;
 
     return SUCCESS;
 }
@@ -350,16 +420,18 @@ Status advance_pipeline(Core core_num) {
     Status status = INVALID_STATUS_CODE;
 
 
-    if (pipeline[core_num][DECODE].opcode == HALT)
+    if (pipeline[core_num][DECODE].opcode == HALT) {
         pc[core_num] = -1;
-    else
+    }
+    else {
         pc[core_num]++;
+    }
 
     pipeline[core_num][WRITE_BACK].pc = -1;
-    if (mem_stall_c[core_num] == 0) {
+    if (mem_stall[core_num] == 0) {
         advance_stage(core_num, MEM, WRITE_BACK);
         advance_stage(core_num, EXECUTE, MEM);
-        if (decode_stall_c[core_num] == 0) {
+        if (decode_stall[core_num] == 0) {
             advance_stage(core_num, DECODE, EXECUTE);
             advance_stage(core_num, FETCH, DECODE);
         }
@@ -368,8 +440,14 @@ Status advance_pipeline(Core core_num) {
         }
     }
 
-    if (mem_stall_c[core_num] > 0) mem_stall_c[core_num]--;
-    if (decode_stall_c[core_num] > 0) decode_stall_c[core_num]--;
+    if (mem_stall[core_num] > 0) {
+        mem_stall[core_num]--;
+        mem_stall_count[core_num]++;
+    }
+    if (decode_stall[core_num] > 0) {
+        decode_stall[core_num]--;
+        decode_stall_count[core_num]++;
+    }
 
     return SUCCESS;
 }

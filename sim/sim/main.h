@@ -167,9 +167,12 @@ bool bus_busy = false;
 
 //Core status
 int pc[NUM_OF_CORES] = { 0 };
+int cycles_count[NUM_OF_CORES] = { 0 };
 bool core_done[NUM_OF_CORES] = { false };
-int decode_stall_c[NUM_OF_CORES] = { 0 };
-int mem_stall_c[NUM_OF_CORES] = { 0 };
+int decode_stall[NUM_OF_CORES] = { 0 };
+int mem_stall[NUM_OF_CORES] = { 0 };
+int decode_stall_count[NUM_OF_CORES] = { 0 };
+int mem_stall_count[NUM_OF_CORES] = { 0 };
 Mem_stage mem_stage[NUM_OF_CORES] = { CACHE_ACCESS };
 
 //Core regs
@@ -179,10 +182,15 @@ int updated_regs[NUM_OF_CORES][NUM_OF_REGS] = { 0 };
 //Core instructions
 int imem[NUM_OF_CORES][IMEM_SIZE] = { 0 };
 Instruction pipeline[NUM_OF_CORES][PIPE_LEN] = { -1 };
+int instructions_count[NUM_OF_CORES] = { 0 };
 
 //Core cache
 int dsram[NUM_OF_CORES][CACHE_SIZE] = { 0 };
 TSRAM tsram[NUM_OF_CORES][CACHE_SIZE] = { 0 };
+int read_hit_count[NUM_OF_CORES] = { 0 };
+int write_hit_count[NUM_OF_CORES] = { 0 };
+int read_miss_count[NUM_OF_CORES] = { 0 };
+int write_miss_count[NUM_OF_CORES] = { 0 };
 
 
 //Function Handles:
@@ -215,5 +223,8 @@ void branch_resolution(Core core_num, Instruction inst);
 void get_reg_values(Core core_num, Instruction inst, int* rd_value, int* rs_value, int* rt_value);
 
 void advance_stage(Core core_num, Pipe from, Pipe to);
+
+Status print_file(Arg file_enum);
+
 
 #endif // __MAIN_H__
