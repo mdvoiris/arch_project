@@ -224,6 +224,8 @@ void get_reg_values(Core core_num, Instruction inst, int* rd_value, int* rs_valu
 
 void advance_stage(Core core_num, Pipe from, Pipe to);
 
+void print_trace(Core core_num, FILE* file);
+
 Status print_file(Arg file_enum);
 
 #endif // __MAIN_H__
