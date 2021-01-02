@@ -487,7 +487,7 @@ void advance_stage(Core core_num, Pipe from, Pipe to) {
 Status cache_update() {
     Status status = INVALID_STATUS_CODE;
 
-
+    //HAIM
 
     return SUCCESS;
 }
