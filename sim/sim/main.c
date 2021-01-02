@@ -4,7 +4,7 @@
 Status main(int argc, char* argv[]) {
 	Status status = INVALID_STATUS_CODE;
     FILE* trace_files[NUM_OF_CORES] = { NULL };
-    //test
+
 
     //Check for correct input argument count
     if (argc != 1 || argc != ARG_COUNT) {
