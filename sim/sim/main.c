@@ -698,7 +698,7 @@ Status mem(Core core_num, bool print_bus_trace)
 
             if (bus.cmd == BusRdX)// check if the cmd is BusRd
             {
-                for (int i = 0; i < 4; i++)
+                for (int i = 0; i < NUM_OF_CORES; i++)
                     if (tsram[i][bus.addr & 0xff].MSI == SHARE && i != core_num)
                         tsram[i][bus.addr & 0xff].MSI = INVALID;
                 if (search_address_cache() != NOT_FOUND && tsram[search_address_cache()][bus.addr & 0xff].MSI == MODIFIED)// checks if the data available in another core 
@@ -909,7 +909,7 @@ Status cache_update() {
 int search_address_cache()// returns core num or not found
 {
     int i;
-    for (i = 0; i < 4; i++)
+    for (i = 0; i < NUM_OF_CORES; i++)
     {
         if (tsram[i][bus.addr & 0xff].tag == bus.addr / 256)
             return i;
@@ -920,7 +920,7 @@ int search_address_cache()// returns core num or not found
 bool free_access_bus(int core_num)
 {
     int i;
-    for (i = 0; i < 4; i++)
+    for (i = 0; i < NUM_OF_CORES; i++)
     {
         if (mem_stage[i] == BUS_ACCESS && i!=core_num)
             return false;
@@ -965,7 +965,7 @@ void sc_func(int address, int core_num, int rd_value)
 {
     if (watch[core_num].sc_dirty == 0)
     {
-        for (int i = 0; i < 4; i++)
+        for (int i = 0; i < NUM_OF_CORES; i++)
             if (watch[i].address == watch[core_num].address && i != core_num)
                 watch[i].sc_dirty = 1;
         dsram[core_num][address & 0xff] = rd_value;
