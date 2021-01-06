@@ -1,13 +1,22 @@
 
 #include "main.h"
 
+
 Status main(int argc, char* argv[]) {
 	Status status = INVALID_STATUS_CODE;
     FILE* trace_files[NUM_OF_CORES] = { NULL };
+    FILE* bus_trace = {NULL};
+
+    //initialize watch
+    watch[CORE0].address = -1;
+    watch[CORE1].address = -1;
+    watch[CORE2].address = -1;
+    watch[CORE3].address = -1;
 
 
     //Check for correct input argument count
-    if (argc != 1 || argc != ARG_COUNT) {
+    //if (argc != 1 || argc != ARG_COUNT) {
+    if (argc != ARG_COUNT) {
         printf("Error - got %d arguments, expecting %d", argc, ARG_COUNT);
         return WRONG_ARGUMENT_COUNT;
     }
@@ -19,6 +28,11 @@ Status main(int argc, char* argv[]) {
     status = init_main_memory();
     if (status) goto EXIT;
 
+    fopen_s(&bus_trace, args[BUSTRACE], "w");
+    if (bus_trace == NULL) {
+        status = FOPEN_FAIL;
+        goto EXIT;
+    }
     for (int i = 0; i < NUM_OF_CORES; i++) {
         fopen_s(&trace_files[i], args[TRACE0 + i], "w");
         if (trace_files[i] == NULL) {
@@ -27,30 +41,30 @@ Status main(int argc, char* argv[]) {
         }
     }
     
-
     while ((core_done[CORE0] & core_done[CORE1] & core_done[CORE2] & core_done[CORE3]) == false) {
         if (core_done[CORE0] == false) {
-            status = core(CORE0, trace_files[CORE0]);
+            status = core(CORE0, trace_files[CORE0], bus_trace);
             if (status) goto EXIT;
         }
         if (core_done[CORE1] == false) {
-            status = core(CORE1, trace_files[CORE1]);
+            status = core(CORE1, trace_files[CORE1], bus_trace);
             if (status) goto EXIT;
         }
         if (core_done[CORE2] == false) {
-            status = core(CORE2, trace_files[CORE2]);
+            status = core(CORE2, trace_files[CORE2], bus_trace);
             if (status) goto EXIT;
         }
         if (core_done[CORE3] == false) {
-            status = core(CORE3, trace_files[CORE3]);
+            status = core(CORE3, trace_files[CORE3], bus_trace);
             if (status) goto EXIT;
         }
         cycle++;
 
         status = cache_update();
+      
         if (status) goto EXIT;
     }
-
+    fclose(bus_trace);
     for (int i = 0; i < NUM_OF_CORES; i++) {
         fclose(trace_files[i]);
         trace_files[i] = NULL;
@@ -82,6 +96,7 @@ EXIT:
         if (trace_files[i] != NULL) {
             fclose(trace_files[i]);
         }
+    fclose(bus_trace);
     return status;
 
 }
@@ -153,7 +168,7 @@ Status init_imems() {
             return FOPEN_FAIL;
 
         for (int line = 0; line < IMEM_SIZE; line++) {
-            fscanf(imem_files[core], "%08X", imem[core][line]);
+            fscanf_s(imem_files[core], "%08X", imem[core][line]);
             if (feof(imem_files[core])) break;
         }
 
@@ -172,7 +187,7 @@ Status init_main_memory() {
         return FOPEN_FAIL;
 
     for (int line = 0; line < MEM_SIZE; line++) {
-        fscanf(memin_file, "%08X", main_memory[line]);
+        fscanf_s(memin_file, "%08X", main_memory[line]);
         if (feof(memin_file)) break;
     }
 
@@ -181,8 +196,9 @@ Status init_main_memory() {
     return SUCCESS;
 }
 
-Status core(Core core_num, FILE* trace_file) {
+Status core(Core core_num, FILE* trace_file, FILE* bus_trace) {
     Status status = INVALID_STATUS_CODE;
+    bool print_bus_trace = false;
 
     if (decode_stall[core_num] == 0 && mem_stall[core_num] == 0) {
         status = fetch(core_num);
@@ -194,12 +210,18 @@ Status core(Core core_num, FILE* trace_file) {
     else if (mem_stall[core_num] == 0) {
         status = execute(core_num);
         if (status) return status;
-
-        status = mem(core_num);
+        status = mem(core_num, &print_bus_trace);
         if (status) return status;
     }
     print_trace(core_num, trace_file);
-
+    if (print_bus_trace == true)
+    {
+        print_bus(bus_trace);
+        if ((pipeline[core_num][MEM].opcode == LL) || (pipeline[core_num][MEM].opcode == LW))//PrRd opcode
+            arrange_bus_load();
+        if ((pipeline[core_num][MEM].opcode == SC) || (pipeline[core_num][MEM].opcode == SW))//PrRd opcode
+            arrange_bus_store();
+    }
     status = write_back(core_num);
     if (status) return status;
 
@@ -405,19 +427,390 @@ Status execute(Core core_num) {
     return SUCCESS;
 }
 
-Status mem(Core core_num) {
+Status mem(Core core_num, bool print_bus_trace)
+{
     Status status = INVALID_STATUS_CODE;
-
+    int rd_value;
+    int rs_value;
+    int rt_value;
+    int address;
     if ((pipeline[core_num][MEM].opcode == HALT) || (pipeline[core_num][MEM].pc == -1)) {
         return SUCCESS;
     }
+    get_reg_values(core_num, pipeline[core_num][MEM], &rd_value, &rs_value, &rt_value);
+    address = rs_value + rt_value;
+    if (address < 0 || address >= IMEM_SIZE)
+        return WRONG_ADDRESS;
+    if ((pipeline[core_num][MEM].opcode != SC) && (pipeline[core_num][MEM].opcode != SW) && (pipeline[core_num][MEM].opcode != LL) && (pipeline[core_num][MEM].opcode != LW))//check if the opcode isn't load or store opcode
+        return SUCCESS;
+    if ((pipeline[core_num][MEM].opcode == LL) || (pipeline[core_num][MEM].opcode == LW))//PrRd opcode
+    {
+        if (mem_stage[core_num] == CACHE_ACCESS)//  search in cache
+        {
+            if (tsram[core_num][(address) & 0xFF].tag == (address) / 256) // read hit
+            {
+                read_hit_count[core_num] += 1;
+                updated_regs[core_num][pipeline[core_num][MEM].rd] = dsram[core_num][(address) & 0xFF];
+                if ((pipeline[core_num][MEM].opcode == LL))//opcode is load linked
+                {
+                    watch[core_num].address = address;
+                    watch[core_num].sc_dirty = 0;
+                }
+                return SUCCESS;
+            }
+            if (free_access_bus(core_num))//  it is read miss so check if the bus is accessible 
+            {
+                mem_stage[core_num] = BUS_ACCESS;
+                read_miss_count[core_num]++;
+                mem_stall[core_num] = 1;
+                mem_stall_count[core_num]++;
+                return SUCCESS;
+            }
+            else// the bus not accessible and it is read miss the core needs to wait
+            {
+                read_miss_count[core_num]++;
+                mem_stall[core_num] = 1;
+                mem_stage[core_num] = WAIT_FOR_BUS;
+                mem_stall_count[core_num]++;
+                return SUCCESS;
+            }
+        }
+        if (mem_stage[core_num] == WAIT_FOR_BUS && free_access_bus(core_num))//checks if the bus is accessible this turn after read miss
+        {
+            mem_stage[core_num] = BUS_ACCESS;
+        }
+        else if (mem_stage[core_num] == WAIT_FOR_BUS && !free_access_bus(core_num))// the bus not accessible  the core needs to wait
+        {
+            mem_stall[core_num] = 1;
+            mem_stall_count[core_num]++;
+            return SUCCESS;
+        }
+        if (mem_stage[core_num] == BUS_ACCESS)//  search in bus
+        {
+            if (bus.cmd == NO_COMMAND && tsram[core_num][address & 0xff].MSI != MODIFIED)// the block in the cache of the core that owns the bus is INVALIDATE or SHARE
+            {
+                bus.cmd = BusRd;
+                bus.data = 0;
+                bus.addr = address;
+                bus.origid = core_num;
+            }
 
-    //HAIM
-    //notice to update the updated_regs and use the cur_regs
-    //also, notice sc and ll opcodes
+            else if (bus.cmd == NO_COMMAND && tsram[core_num][address & 0xff].MSI == MODIFIED)// the block in the cache of the core that owns the bus is MODIFIED
+            {
+                bus.cmd = Flush;
+                bus.addr = address;
+                bus.data = 0;
+                bus.origid = core_num;
+                flush_cycles = FLUSH_TIME;
+            }
 
-    return SUCCESS;
+            if (bus.cmd == BusRd)// check if the cmd is BusRd
+            {
+
+                if (search_address_cache() != NOT_FOUND && tsram[search_address_cache()][bus.addr & 0xff].MSI == MODIFIED)// checks if the block available in another modified core 
+                {
+                    
+                    flush_cycles = FLUSH_TIME;
+                    mem_stall[core_num] = 1;
+                    mem_stall_count[core_num]++;
+                    print_bus_trace = true;
+                    return SUCCESS;
+                }
+                else// block in memory
+                {
+                    mem_stall[core_num]++;
+                    mem_stall_count[core_num]++;
+                    flush_cycles = FLUSH_TIME;
+                    print_bus_trace = true;
+                    return SUCCESS;
+                }
+            }
+
+            if (bus.cmd == Flush && bus.origid == MAIN_MEMORY)// flush from main memory to the core who owns the bus
+            {
+                flush_cycles -= 1;
+                if (flush_cycles == 0)// check if next command on the bus is flush
+                {
+                    print_bus_trace = true;
+                    bus.data = main_memory[bus.addr];
+                    tsram[core_num][bus.addr & 0xff].MSI = SHARE;
+                    tsram[core_num][bus.addr & 0xff].tag = bus.addr / 256;
+                    dsram[core_num][bus.addr & 0xff] = bus.data;
+                    updated_regs[core_num][pipeline[core_num][MEM].rd] = dsram[core_num][bus.addr & 0xff];
+                    mem_stage[core_num] = CACHE_ACCESS;
+                    if ((pipeline[core_num][MEM].opcode == LL))//opcode is load linked
+                    {
+                        watch[core_num].address = address;
+                        watch[core_num].sc_dirty = 0;
+                    }
+                    return SUCCESS;
+                }
+                else
+                {
+                    mem_stall[core_num] = 1;
+                    mem_stall_count[core_num]++;
+                    return SUCCESS;
+                }
+            }
+            else if (bus.cmd == Flush && bus.origid != MAIN_MEMORY && tsram[core_num][bus.addr & 0xff].MSI != MODIFIED)
+            {
+               
+                if (flush_cycles == FLUSH_TIME )//flush to the bus and update the calling core
+                {
+                    bus.data = dsram[bus.origid][bus.addr];
+                    dsram[core_num][bus.addr & 0xff] = bus.data;
+                    updated_regs[core_num][pipeline[core_num][MEM].rd] = dsram[core_num][bus.addr & 0xff];
+                    tsram[core_num][bus.addr & 0xff].MSI = SHARE;
+                    tsram[core_num][bus.addr & 0xff].tag = bus.addr / 256;
+                    tsram[bus.origid][bus.addr].MSI = SHARE;
+                    print_bus_trace = true;
+                    mem_stall[core_num] = 1;
+                    mem_stall_count[core_num]++;
+                    flush_cycles -= 1;
+                    if ((pipeline[core_num][MEM].opcode == LL))//opcode is load linked
+                    {
+                        watch[core_num].address = address;
+                        watch[core_num].sc_dirty = 0;
+                    }
+                    return SUCCESS;
+                }
+                flush_cycles -= 1;
+                if (flush_cycles == 0)//flush arrives to main memory and empty the bus
+                {
+                    main_memory[bus.addr] = bus.data;
+                    mem_stage[core_num] = CACHE_ACCESS;
+                    bus.cmd = NO_COMMAND;
+                    return SUCCESS;
+                }
+                else//waiting for the flush to arrive to the main memory
+                {
+                    mem_stall[core_num] = 1;
+                    mem_stall_count[core_num]++;
+                    return SUCCESS;
+                }
+            }
+            else if (bus.cmd == Flush && bus.origid != MAIN_MEMORY && tsram[core_num][bus.addr & 0xff].MSI == MODIFIED)
+            {
+                if (flush_cycles == FLUSH_TIME )//flush to the bus 
+                {
+                    bus.data = dsram[core_num][bus.addr & 0xff];
+                    print_bus_trace = true;
+                    mem_stall[core_num] = 1;
+                    mem_stall_count[core_num]++;
+                    flush_cycles--;
+                    return SUCCESS;
+                }
+                flush_cycles--;
+                if (flush_cycles == 0)//flush arrives to main memory and empty the bus
+                {
+                    main_memory[bus.addr] = bus.data;
+                    bus.cmd = NO_COMMAND;
+                    tsram[core_num][bus.addr & 0xff].MSI = SHARE;
+                    return SUCCESS;
+                }
+                else//waiting for the flush to arrive to the main memory
+                {
+                    mem_stall[core_num] = 1;
+                    mem_stall_count[core_num]++;
+                    return SUCCESS;
+                }
+            }
+        }
+    }
+
+
+    else if ((pipeline[core_num][MEM].opcode == SC) || (pipeline[core_num][MEM].opcode == SW))//PrWr opcode
+    {
+        /*  if (mem_stage[core_num] == CACHE_ACCESS && tsram[core_num][bus.addr*0xff].MSI == MODIFIED && core_num == abort_cache && address == bus.addr && (bus.cmd == BusRd || bus.cmd == Flush))// abort mem request because the block flush or BusRd
+          {
+              mem_stall[core_num]++;
+              return SUCCESS;
+
+          }*/
+        if (mem_stage[core_num] == CACHE_ACCESS)//  search in cache
+        {
+            
+            if (tsram[core_num][(address) & 0xFF].tag == (address) / 256) // write hit
+            {
+                write_hit_count[core_num] += 1;
+                if (tsram[core_num][address & 0xff].MSI == SHARE)//opcode is load linked
+                {
+                    if (free_access_bus(core_num))
+                        mem_stage[core_num] = BUS_ACCESS;
+                    else// bus isn't available
+                        mem_stage[core_num] = WAIT_FOR_BUS;
+                    return SUCCESS;
+                }
+                else
+                {
+                    if (tsram[core_num][address & 0xff].MSI == MODIFIED && pipeline[core_num][MEM].opcode == SC)
+                        sc_func(address, core_num, rd_value);
+                    else if (tsram[core_num][address & 0xff].MSI == MODIFIED && pipeline[core_num][MEM].opcode == SW)
+                        dsram[core_num][address & 0xff] = rd_value;
+                    return SUCCESS;
+                }
+            }
+            if (free_access_bus(core_num))// write miss so check if the bus is accessible 
+            {
+                mem_stage[core_num] = BUS_ACCESS;
+                write_miss_count[core_num]++;
+                mem_stall[core_num] = 1;
+                mem_stall_count[core_num]++;
+                return SUCCESS;
+            }
+            else// the bus not accessible  the core needs to wait
+            {
+                read_miss_count[core_num]++;
+                mem_stall[core_num] = 1;
+                mem_stage[core_num] = WAIT_FOR_BUS;
+                mem_stall_count[core_num]++;
+                return SUCCESS;
+            }
+        }
+        if (mem_stage[core_num] == WAIT_FOR_BUS && free_access_bus(core_num))//checks if the bus is accessible
+        {
+            mem_stage[core_num] = BUS_ACCESS;
+        }
+        else if (mem_stage[core_num] == WAIT_FOR_BUS && !free_access_bus(core_num))// the bus not accessible  the core needs to wait
+        {
+            mem_stall[core_num] = 1;
+            mem_stall_count[core_num]++;
+            return SUCCESS;
+        }
+        if (mem_stage[core_num] == BUS_ACCESS)//  search in bus
+        {
+            if (bus.cmd == NO_COMMAND && tsram[core_num][address & 0xff].MSI != MODIFIED)// the block in the cache of the core that owns the bus is INVALIDATE or SHARE
+            {
+                bus.cmd = BusRdX;
+                bus.data = 0;
+                bus.addr = address;
+                bus.origid = core_num;
+            }
+
+            else if (bus.cmd == NO_COMMAND && tsram[core_num][address & 0xff].MSI == MODIFIED)// the block in the cache of the core that owns the bus is MODIFIED
+            {
+                bus.cmd = Flush;
+                bus.addr = address;
+                bus.data = 0;
+                bus.origid = core_num;
+                flush_cycles = FLUSH_TIME;
+            }
+
+            if (bus.cmd == BusRdX)// check if the cmd is BusRd
+            {
+                for (int i = 0; i < 4; i++)
+                    if (tsram[i][bus.addr & 0xff].MSI == SHARE && i != core_num)
+                        tsram[i][bus.addr & 0xff].MSI = INVALID;
+                if (search_address_cache() != NOT_FOUND && tsram[search_address_cache()][bus.addr & 0xff].MSI == MODIFIED)// checks if the data available in another core 
+                {
+
+                    //abort_cache = search_address_cache();
+                    flush_cycles = FLUSH_TIME;
+                    mem_stall[core_num] = 1;
+                    mem_stall_count[core_num]++;
+                    print_bus_trace = true;
+                    return SUCCESS;
+                }
+                else// the wanted block is in the main memory
+                {
+                    mem_stall[core_num]++;
+                    mem_stall_count[core_num]++;
+                    flush_cycles = FLUSH_TIME;
+                    print_bus_trace = true;
+                    return SUCCESS;
+                }
+            }
+
+            if (bus.cmd == Flush && bus.origid == MAIN_MEMORY)// flush from main memory to the core who owns the bus
+            {
+                flush_cycles -= 1;
+                if (flush_cycles == 0)// check if next command on the bus is flush
+                {
+                    print_bus_trace = true;
+                    bus.data = main_memory[bus.addr];
+                    tsram[core_num][bus.addr & 0xff].MSI = MODIFIED;
+                    tsram[core_num][bus.addr & 0xff].tag = bus.addr / 256;
+                    dsram[core_num][bus.addr & 0xff] = bus.data;
+                    mem_stage[core_num] = CACHE_ACCESS;
+                    if (tsram[core_num][address & 0xff].MSI == MODIFIED && pipeline[core_num][MEM].opcode == SC)
+                        sc_func(address, core_num, rd_value);
+                    if (tsram[core_num][address & 0xff].MSI == MODIFIED && pipeline[core_num][MEM].opcode == SW)
+                        dsram[core_num][bus.addr & 0xff] = rd_value;
+                    return SUCCESS;
+                }
+                else
+                {
+                    mem_stall[core_num] = 1;
+                    mem_stall_count[core_num]++;
+                    return SUCCESS;
+                }
+            }
+            else if (bus.cmd == Flush && bus.origid != MAIN_MEMORY && bus.origid != core_num)
+            {
+
+                if (flush_cycles == FLUSH_TIME)//flush to the bus and update the calling core
+                {
+                    bus.data = dsram[bus.origid][bus.addr];
+                    dsram[core_num][bus.addr & 0xff] = bus.data;
+                    tsram[core_num][bus.addr & 0xff].MSI = MODIFIED;
+                    tsram[core_num][bus.addr & 0xff].tag = bus.addr / 256;
+                    tsram[bus.origid][bus.addr].MSI = INVALID;
+                    print_bus_trace = true;
+                    mem_stall[core_num] = 1;
+                    mem_stall_count[core_num]++;
+                    if (tsram[core_num][address & 0xff].MSI == MODIFIED && pipeline[core_num][MEM].opcode == SC)
+                        sc_func(address, core_num, rd_value);
+                    if (tsram[core_num][address & 0xff].MSI == MODIFIED && pipeline[core_num][MEM].opcode == SW)
+                        dsram[core_num][bus.addr & 0xff] = rd_value;
+                    flush_cycles -= 1;
+                    return SUCCESS;
+                }
+                flush_cycles -= 1;
+                if (flush_cycles == 0)//flush arrives to main memory and empty the bus
+                {
+                    main_memory[bus.addr] = bus.data;
+                    mem_stage[core_num] = CACHE_ACCESS;
+                    bus.cmd = NO_COMMAND;
+                    return SUCCESS;
+                }
+                else//waiting for the flush to arrive to the main memory
+                {
+                    //tsram[abort_cache][bus.addr].MSI = SHARE;//cancel abort to block who was modified and finished to flush to the cache who owns the bus
+                    mem_stall[core_num] = 1;
+                    mem_stall_count[core_num]++;
+                    return SUCCESS;
+                }
+            }
+            else if (bus.cmd == Flush && bus.origid != MAIN_MEMORY && tsram[core_num][bus.addr & 0xff].MSI == MODIFIED)
+            {
+                if (flush_cycles == FLUSH_TIME)//flush to the bus 
+                {
+                    bus.data = dsram[core_num][bus.addr & 0xff];
+                    print_bus_trace = true;
+                    mem_stall[core_num] = 1;
+                    mem_stall_count[core_num]++;
+                    flush_cycles--;
+                    return SUCCESS;
+                }
+                flush_cycles--;
+                if (flush_cycles == 0)//flush arrives to main memory and empty the bus
+                {
+                    main_memory[bus.addr] = bus.data;
+                    bus.cmd = BusRdX;
+                    tsram[core_num][bus.addr & 0xff].MSI = MODIFIED;
+                    return SUCCESS;
+                }
+                else//waiting for the flush to arrive to the main memory
+                {
+                    mem_stall[core_num] = 1;
+                    mem_stall_count[core_num]++;
+                    return SUCCESS;
+                }
+            }
+        }
+    }
 }
+
 
 Status write_back(Core core_num) {
     Status status = INVALID_STATUS_CODE;
@@ -511,4 +904,78 @@ Status cache_update() {
     //HAIM
 
     return SUCCESS;
+}
+
+int search_address_cache()// returns core num or not found
+{
+    int i;
+    for (i = 0; i < 4; i++)
+    {
+        if (tsram[i][bus.addr & 0xff].tag == bus.addr / 256)
+            return i;
+    }
+    return NOT_FOUND;
+}
+
+bool free_access_bus(int core_num)
+{
+    int i;
+    for (i = 0; i < 4; i++)
+    {
+        if (mem_stage[i] == BUS_ACCESS && i!=core_num)
+            return false;
+    }
+    return true;
+}
+
+void print_bus(FILE* bus_trace)
+{
+    fprintf(bus_trace, "%d %d %d %05X %08X\n", cycle, bus.origid, bus.cmd, bus.addr, bus.data);
+}
+
+void arrange_bus_load()
+{
+    if (bus.cmd == Flush && bus.origid == MAIN_MEMORY)// finish flush by main memory so empty the bus
+        bus.cmd = NO_COMMAND;
+    if (bus.cmd == BusRd)// update bus_origid to the the core that is going to make flush or the main memory that will do the flush
+    {
+        bus.cmd = Flush;
+        if (search_address_cache() != NOT_FOUND && tsram[search_address_cache()][bus.addr & 0xff].MSI == MODIFIED)
+            bus.origid = search_address_cache();
+        else
+            bus.origid = MAIN_MEMORY;
+    }
+}
+
+void arrange_bus_store()
+{
+    if (bus.cmd == Flush && bus.origid == MAIN_MEMORY)// finish flush by main memory so empty the bus
+        bus.cmd = NO_COMMAND;
+    if (bus.cmd == BusRdX)// update bus_origid to the the core that is going to make flush or the main memory that will do the flush
+    {
+        bus.cmd = Flush;
+        if (search_address_cache() != NOT_FOUND && tsram[search_address_cache()][bus.addr & 0xff].MSI == MODIFIED)
+            bus.origid = search_address_cache();
+        else
+            bus.origid = MAIN_MEMORY;
+    }
+}
+
+void sc_func(int address, int core_num, int rd_value)
+{
+    if (watch[core_num].sc_dirty == 0)
+    {
+        for (int i = 0; i < 4; i++)
+            if (watch[i].address == watch[core_num].address && i != core_num)
+                watch[i].sc_dirty = 1;
+        dsram[core_num][address & 0xff] = rd_value;
+        updated_regs[core_num][pipeline[core_num][MEM].rd] = 1;
+        watch[core_num].address = -1;
+    }
+    else if (watch[core_num].sc_dirty == 1)
+    {
+        watch[core_num].sc_dirty = 0;
+        updated_regs[core_num][pipeline[core_num][MEM].rd] = 0;
+        watch[core_num].address = -1;
+    }
 }

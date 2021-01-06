@@ -17,6 +17,8 @@
 #define MEM_SIZE 1<<20
 #define CACHE_SIZE 256
 #define IMEM_SIZE 1024
+#define FLUSH_TIME 64
+#define NOT_FOUND -1
 
 
 //Typedefs:
@@ -61,7 +63,8 @@ typedef enum _status {
 	WRONG_OPCODE,
 	WRONG_RD,
 	WRONG_RS,
-	WRONG_RT
+	WRONG_RT,
+	WRONG_ADDRESS
 } Status;
 
 typedef enum _core {
@@ -104,10 +107,10 @@ typedef enum _opcode {
 } Opcode;
 
 typedef enum _bus_origid {
-	CORE0 = CORE0,
-	CORE1 = CORE1,
-	CORE2 = CORE2,
-	CORE3 = CORE3,
+	//CORE0,
+	//CORE1,
+	//CORE2,
+	//CORE3,
 	MAIN_MEMORY
 } Bus_origid;
 
@@ -120,14 +123,21 @@ typedef enum _bus_cmd {
 
 typedef enum _mem_stage {
 	CACHE_ACCESS,
-	BUS_ACCESS,
-	MEM_ACCESS
+	WAIT_FOR_BUS,
+	BUS_ACCESS
 } Mem_stage;
 
 typedef struct _tsram {
 	int MSI;
 	int tag;
 }TSRAM;
+
+typedef enum _msi {
+	INVALID,
+	MODIFIED,
+	SHARE
+}MSI;
+
 
 typedef struct _bus {
 	Bus_origid origid;
@@ -145,6 +155,13 @@ typedef struct _instruction {
 	int pc;
 }Instruction;
 
+typedef struct _load_store_conditional {
+	int address;
+	bool sc_dirty;
+}LOAD_STORE_CONDITIONAL;
+
+
+
 
 //Global variables:
 //Input arguments
@@ -159,12 +176,10 @@ int cycle = 0;
 
 //Main memory
 int main_memory[MEM_SIZE] = { 0 };
-int mem_busy_c = 0;
 
 //Bus
 BUS bus = { 0 };
-bool bus_busy = false;
-
+int flush_cycles = 0;
 //Core status
 int pc[NUM_OF_CORES] = { 0 };
 int cycles_count[NUM_OF_CORES] = { 0 };
@@ -183,14 +198,16 @@ int updated_regs[NUM_OF_CORES][NUM_OF_REGS] = { 0 };
 int imem[NUM_OF_CORES][IMEM_SIZE] = { 0 };
 Instruction pipeline[NUM_OF_CORES][PIPE_LEN] = { -1 };
 int instructions_count[NUM_OF_CORES] = { 0 };
+LOAD_STORE_CONDITIONAL watch[NUM_OF_CORES] = { 0 };
 
 //Core cache
 int dsram[NUM_OF_CORES][CACHE_SIZE] = { 0 };
-TSRAM tsram[NUM_OF_CORES][CACHE_SIZE] = { 0 };
+TSRAM tsram[NUM_OF_CORES][CACHE_SIZE] = { INVALID };
 int read_hit_count[NUM_OF_CORES] = { 0 };
 int write_hit_count[NUM_OF_CORES] = { 0 };
 int read_miss_count[NUM_OF_CORES] = { 0 };
 int write_miss_count[NUM_OF_CORES] = { 0 };
+int abort_cache=-1;
 
 
 //Function Handles:
@@ -200,7 +217,7 @@ Status init_imems();
 
 Status init_main_memory();
 
-Status core(Core core_num, FILE* trace_file);
+Status core(Core core_num, FILE* trace_file, FILE* bus_trace);
 
 Status fetch(Core core_num);
 
@@ -208,7 +225,7 @@ Status decode(Core core_num);
 
 Status execute(Core core_num);
 
-Status mem(Core core_num);
+Status mem(Core core_num, bool print_bus_trace);
 
 Status write_back(Core core_num);
 
@@ -227,5 +244,19 @@ void advance_stage(Core core_num, Pipe from, Pipe to);
 void print_trace(Core core_num, FILE* file);
 
 Status print_file(Arg file_enum);
+
+int search_address_cache();
+
+bool free_access_bus(int core_num);
+
+void print_bus(FILE* bus_trace);
+
+void arrange_bus_load();
+
+void arrange_bus_store();
+
+void sc_func(int address, int core_num, int rd_value);
+
+
 
 #endif // __MAIN_H__

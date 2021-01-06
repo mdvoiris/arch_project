@@ -1,0 +1,11 @@
+	lw $r2, $zero, $imm, 16		# PC=0
+	add $r2, $r2, $imm, 1		# PC=1
+	sw $r2, $zero, $imm, 16		# PC=2
+	blt $zero, $r5, $imm, 100	# PC=3
+	add $r5, $r5, $imm, 1		# PC=4
+	sw $r2, $zero, $imm, 17		# PC=5
+	halt $zero, $zero, $zero, 0	# PC=6
+	halt $zero, $zero, $zero, 0	# PC=7
+	halt $zero, $zero, $zero, 0	# PC=8
+	halt $zero, $zero, $zero, 0	# PC=9
+	halt $zero, $zero, $zero, 0	# PC=10
