@@ -180,6 +180,7 @@ int main_memory[MEM_SIZE] = { 0 };
 //Bus
 BUS bus = { 0 };
 int flush_cycles = 0;
+
 //Core status
 int pc[NUM_OF_CORES] = { 0 };
 int cycles_count[NUM_OF_CORES] = { 0 };
@@ -189,6 +190,7 @@ int mem_stall[NUM_OF_CORES] = { 0 };
 int decode_stall_count[NUM_OF_CORES] = { 0 };
 int mem_stall_count[NUM_OF_CORES] = { 0 };
 Mem_stage mem_stage[NUM_OF_CORES] = { CACHE_ACCESS };
+bool branch[NUM_OF_CORES] = { false };
 
 //Core regs
 int cur_regs[NUM_OF_CORES][NUM_OF_REGS] = { 0 };
@@ -196,7 +198,7 @@ int updated_regs[NUM_OF_CORES][NUM_OF_REGS] = { 0 };
 
 //Core instructions
 int imem[NUM_OF_CORES][IMEM_SIZE] = { 0 };
-Instruction pipeline[NUM_OF_CORES][PIPE_LEN] = { -1 };
+Instruction pipeline[NUM_OF_CORES][PIPE_LEN] = { 0 };
 int instructions_count[NUM_OF_CORES] = { 0 };
 LOAD_STORE_CONDITIONAL watch[NUM_OF_CORES] = { 0 };
 
@@ -217,6 +219,8 @@ Status init_imems();
 
 Status init_main_memory();
 
+void init_pipeline();
+
 Status core(Core core_num, FILE* trace_file, FILE* bus_trace);
 
 Status fetch(Core core_num);
@@ -235,7 +239,7 @@ Status cache_update();
 
 int detect_hazards(Core core_num, Pipe stage);
 
-void branch_resolution(Core core_num, Instruction inst);
+bool branch_resolution(Core core_num, Instruction inst);
 
 void get_reg_values(Core core_num, Instruction inst, int* rd_value, int* rs_value, int* rt_value);
 

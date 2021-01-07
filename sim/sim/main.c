@@ -5,7 +5,7 @@
 Status main(int argc, char* argv[]) {
 	Status status = INVALID_STATUS_CODE;
     FILE* trace_files[NUM_OF_CORES] = { NULL };
-    FILE* bus_trace = {NULL};
+    FILE* bus_trace = NULL;
 
     //initialize watch
     watch[CORE0].address = -1;
@@ -15,18 +15,21 @@ Status main(int argc, char* argv[]) {
 
 
     //Check for correct input argument count
-    //if (argc != 1 || argc != ARG_COUNT) {
     if (argc != ARG_COUNT) {
-        printf("Error - got %d arguments, expecting %d", argc, ARG_COUNT);
-        return WRONG_ARGUMENT_COUNT;
+        if (argc != 1) {
+            printf("Error - got %d arguments, expecting %d", argc, ARG_COUNT);
+            return WRONG_ARGUMENT_COUNT;
+        }
     }
-    else if (argc == ARG_COUNT) update_args(argv);
-
+    else update_args(argv);
+    
     status = init_imems();
     if (status) goto EXIT;
 
     status = init_main_memory();
     if (status) goto EXIT;
+
+    init_pipeline();
 
     fopen_s(&bus_trace, args[BUSTRACE], "w");
     if (bus_trace == NULL) {
@@ -69,7 +72,6 @@ Status main(int argc, char* argv[]) {
         fclose(trace_files[i]);
         trace_files[i] = NULL;
     }
-
 
     status = print_file(MEMOUT);
     if (status) goto EXIT;
@@ -137,7 +139,7 @@ Status print_file(Arg file_enum) {
     if (file_enum >= TSRAM0 && file_enum <= TSRAM3) {
         core = file_enum - TSRAM0;
         for (int i = 0; i < CACHE_SIZE; i++) {
-            fprintf(file, "%04X\n", tsram[core][i]);
+            fprintf(file, "%04X\n", ((tsram[core][i].MSI << 12) + tsram[core][i].tag));
         }
     }
     if (file_enum >= STATS0 && file_enum <= STATS3) {
@@ -168,7 +170,7 @@ Status init_imems() {
             return FOPEN_FAIL;
 
         for (int line = 0; line < IMEM_SIZE; line++) {
-            fscanf_s(imem_files[core], "%08X", imem[core][line]);
+            fscanf_s(imem_files[core], "%08X", &imem[core][line]);
             if (feof(imem_files[core])) break;
         }
 
@@ -187,13 +189,25 @@ Status init_main_memory() {
         return FOPEN_FAIL;
 
     for (int line = 0; line < MEM_SIZE; line++) {
-        fscanf_s(memin_file, "%08X", main_memory[line]);
+        fscanf_s(memin_file, "%08X", &main_memory[line]);
         if (feof(memin_file)) break;
     }
 
     fclose(memin_file);
 
     return SUCCESS;
+}
+
+void init_pipeline() {
+    for (int core = CORE0; core < NUM_OF_CORES; core++)
+        for (int i = 0; i < PIPE_LEN; i++) {
+            pipeline[core][i].pc = -1;
+            pipeline[core][i].opcode = -1;
+            pipeline[core][i].rd = -1;
+            pipeline[core][i].rs = -1;
+            pipeline[core][i].rt = -1;
+            pipeline[core][i].imm = -1;
+        }
 }
 
 Status core(Core core_num, FILE* trace_file, FILE* bus_trace) {
@@ -203,16 +217,19 @@ Status core(Core core_num, FILE* trace_file, FILE* bus_trace) {
     if (decode_stall[core_num] == 0 && mem_stall[core_num] == 0) {
         status = fetch(core_num);
         if (status) return status;
-
-        status = decode(core_num);
-        if (status) return status;
     }
-    else if (mem_stall[core_num] == 0) {
+
+    status = decode(core_num);
+    if (status) return status;
+
+    if (mem_stall[core_num] == 0) {
         status = execute(core_num);
         if (status) return status;
-        status = mem(core_num, &print_bus_trace);
-        if (status) return status;
     }
+
+    status = mem(core_num, &print_bus_trace);
+    if (status) return status;
+    
     print_trace(core_num, trace_file);
     if (print_bus_trace == true)
     {
@@ -239,22 +256,22 @@ Status fetch(Core core_num) {
         return SUCCESS;
     }
 
-    pipeline[core_num][FETCH].opcode = imem[core_num][pc[core_num]] & 0xff000000;
-    pipeline[core_num][FETCH].rd     = imem[core_num][pc[core_num]] & 0x00f00000;
-    pipeline[core_num][FETCH].rs     = imem[core_num][pc[core_num]] & 0x000f0000;
-    pipeline[core_num][FETCH].rt     = imem[core_num][pc[core_num]] & 0x0000f000;
-    pipeline[core_num][FETCH].imm    = imem[core_num][pc[core_num]] & 0x00000fff;
     pipeline[core_num][FETCH].pc     = pc[core_num];
+    pipeline[core_num][FETCH].opcode = (imem[core_num][pc[core_num]] & 0xff000000) >> 24;
+    pipeline[core_num][FETCH].rd     = (imem[core_num][pc[core_num]] & 0x00f00000) >> 20;
+    pipeline[core_num][FETCH].rs     = (imem[core_num][pc[core_num]] & 0x000f0000) >> 16;
+    pipeline[core_num][FETCH].rt     = (imem[core_num][pc[core_num]] & 0x0000f000) >> 12;
+    pipeline[core_num][FETCH].imm    = imem[core_num][pc[core_num]] & 0x00000800 ? 
+                                        (-1 * ((~imem[core_num][pc[core_num]] + 1) & 0x00000fff)) : (imem[core_num][pc[core_num]] & 0x00000fff);
 
     if ((pipeline[core_num][FETCH].opcode < ADD) || (pipeline[core_num][FETCH].opcode > HALT))
         return WRONG_OPCODE;
-    if ((pipeline[core_num][FETCH].rd < 0) || (pipeline[core_num][FETCH].rd > (NUM_OF_REGS-1)))
+    if (pipeline[core_num][FETCH].rd > (NUM_OF_REGS-1))
         return WRONG_RD;
-    if ((pipeline[core_num][FETCH].rs < 0) || (pipeline[core_num][FETCH].rs > (NUM_OF_REGS - 1)))
+    if (pipeline[core_num][FETCH].rs > (NUM_OF_REGS - 1))
         return WRONG_RS;
-    if ((pipeline[core_num][FETCH].rt < 0) || (pipeline[core_num][FETCH].rt > (NUM_OF_REGS - 1)))
+    if (pipeline[core_num][FETCH].rt > (NUM_OF_REGS - 1))
         return WRONG_RT;
-
 
     return SUCCESS;
 }
@@ -270,8 +287,11 @@ Status decode(Core core_num) {
 
     if (decode_stall[core_num] == 0) {
         if ((pipeline[core_num][DECODE].opcode >= BEQ) && (pipeline[core_num][DECODE].opcode <= JAL))
-            branch_resolution(core_num, pipeline[core_num][DECODE]);
+            branch[core_num] = branch_resolution(core_num, pipeline[core_num][DECODE]);
     }
+    else
+        decode_stall_count[core_num]++;
+
 
     return SUCCESS;
 }
@@ -296,10 +316,12 @@ int detect_hazards(Core core_num, Pipe stage) {
         if ((hazard_potential[i] == 0) || (hazard_potential[i] == 1))
             continue;
         for (int j = stage + 1; j < PIPE_LEN; j++) {
+            if (pipeline[core_num][j].pc == -1) continue;
+
             if ((pipeline[core_num][j].opcode == JAL) && (hazard_potential[i] == 15))
                 return (WRITE_BACK - j + 1);
 
-            else if ((pipeline[core_num][stage].opcode < BEQ) || (pipeline[core_num][stage].opcode == LW) || (pipeline[core_num][stage].opcode == LL) || (pipeline[core_num][stage].opcode == SC)) {
+            else if ((pipeline[core_num][j].opcode < BEQ) || (pipeline[core_num][j].opcode == LW) || (pipeline[core_num][j].opcode == LL) || (pipeline[core_num][j].opcode == SC)) {
                 if (hazard_potential[i] == pipeline[core_num][j].rd)
                     return (WRITE_BACK - j + 1);
             }
@@ -309,7 +331,7 @@ int detect_hazards(Core core_num, Pipe stage) {
     return 0;
 }
 
-void branch_resolution(Core core_num, Instruction inst) {
+bool branch_resolution(Core core_num, Instruction inst) {
     int rd_value;
     int rs_value;
     int rt_value;
@@ -319,41 +341,54 @@ void branch_resolution(Core core_num, Instruction inst) {
 
     switch (inst.opcode) {
     case BEQ: {
-        if (rs_value == rt_value)
-            pc[core_num] = (rd_value & 0x3ff) - 1;
+        if (rs_value == rt_value) {
+            pc[core_num] = rd_value & 0x3ff;
+            return true;
+        }
         break;
     }
     case BNE: {
-        if (rs_value != rt_value)
-            pc[core_num] = (rd_value & 0x3ff) - 1;
+        if (rs_value != rt_value) {
+            pc[core_num] = rd_value & 0x3ff;
+            return true;
+        }
         break;
     }
     case BLT: {
-        if (rs_value < rt_value)
-            pc[core_num] = (rd_value & 0x3ff) - 1;
+        if (rs_value < rt_value) {
+            pc[core_num] = rd_value & 0x3ff;
+            return true;
+        }
         break;
     }
     case BGT: {
-        if (rs_value > rt_value)
-            pc[core_num] = (rd_value & 0x3ff) - 1;
+        if (rs_value > rt_value) {
+            pc[core_num] = rd_value & 0x3ff;
+            return true;
+        }
         break;
     }
     case BLE: {
-        if (rs_value <= rt_value)
-            pc[core_num] = (rd_value & 0x3ff) - 1;
+        if (rs_value <= rt_value) {
+            pc[core_num] = rd_value & 0x3ff;
+            return true;
+        }
         break;
     }
     case BGE: {
-        if (rs_value >= rt_value)
-            pc[core_num] = (rd_value & 0x3ff) - 1;
+        if (rs_value >= rt_value) {
+            pc[core_num] = rd_value & 0x3ff;
+            return true;
+        }
         break;
     }
     case JAL: {
-        pc[core_num] = (rd_value & 0x3ff) - 1;
-        break;
+        pc[core_num] = rd_value & 0x3ff;
+        return true;
     }
     }
-    return;
+
+    return false;
 }
 
 void get_reg_values(Core core_num, Instruction inst, int* rd_value, int* rs_value, int* rt_value) {
@@ -434,12 +469,18 @@ Status mem(Core core_num, bool print_bus_trace)
     int rs_value;
     int rt_value;
     int address;
+
     if ((pipeline[core_num][MEM].opcode == HALT) || (pipeline[core_num][MEM].pc == -1)) {
         return SUCCESS;
     }
+
+    if (mem_stall[core_num] > 0) {
+        mem_stall[core_num]--;
+    }
+
     get_reg_values(core_num, pipeline[core_num][MEM], &rd_value, &rs_value, &rt_value);
     address = rs_value + rt_value;
-    if (address < 0 || address >= IMEM_SIZE)
+    if (address < 0 || address >= MEM_SIZE)
         return WRONG_ADDRESS;
     if ((pipeline[core_num][MEM].opcode != SC) && (pipeline[core_num][MEM].opcode != SW) && (pipeline[core_num][MEM].opcode != LL) && (pipeline[core_num][MEM].opcode != LW))//check if the opcode isn't load or store opcode
         return SUCCESS;
@@ -815,13 +856,13 @@ Status mem(Core core_num, bool print_bus_trace)
 Status write_back(Core core_num) {
     Status status = INVALID_STATUS_CODE;
 
-    if (pipeline[core_num][EXECUTE].opcode == HALT) {
+    if (pipeline[core_num][WRITE_BACK].opcode == HALT) {
         core_done[core_num] = true;
-        cycles_count[core_num] = cycle;
+        cycles_count[core_num] = cycle + 1;
         instructions_count[core_num]++;
         return SUCCESS;
     }
-    else if (pipeline[core_num][EXECUTE].pc == -1)
+    else if (pipeline[core_num][WRITE_BACK].pc == -1)
         return SUCCESS;
 
     if (pipeline[core_num][WRITE_BACK].opcode == JAL)
@@ -841,9 +882,7 @@ Status advance_pipeline(Core core_num) {
 
     if (pipeline[core_num][DECODE].opcode == HALT) {
         pc[core_num] = -1;
-    }
-    else {
-        pc[core_num]++;
+        pipeline[core_num][FETCH].pc = -1;
     }
 
     pipeline[core_num][WRITE_BACK].pc = -1;
@@ -853,20 +892,16 @@ Status advance_pipeline(Core core_num) {
         if (decode_stall[core_num] == 0) {
             advance_stage(core_num, DECODE, EXECUTE);
             advance_stage(core_num, FETCH, DECODE);
+            if (pc[core_num] != -1 && branch[core_num] == false) 
+                pc[core_num]++;
         }
         else {
             pipeline[core_num][EXECUTE].pc = -1;
         }
     }
 
-    if (mem_stall[core_num] > 0) {
-        mem_stall[core_num]--;
-        mem_stall_count[core_num]++;
-    }
-    if (decode_stall[core_num] > 0) {
-        decode_stall[core_num]--;
-        decode_stall_count[core_num]++;
-    }
+    if (branch[core_num])
+        branch[core_num] = false;
 
     return SUCCESS;
 }
