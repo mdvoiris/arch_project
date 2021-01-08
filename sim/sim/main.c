@@ -236,7 +236,7 @@ Status core(Core core_num, FILE* trace_file, FILE* bus_trace) {
     }
 
 
-    status = mem(core_num, &print_bus_trace);
+    status = mem(core_num);
     if (status) return status;
 
     print_trace(core_num, trace_file);
@@ -464,7 +464,7 @@ Status execute(Core core_num) {
     return SUCCESS;
 }
 
-Status mem(Core core_num, bool *print_bus_trace)
+Status mem(Core core_num)
 {
     Status status = INVALID_STATUS_CODE;
     int rd_value;
@@ -556,7 +556,7 @@ Status mem(Core core_num, bool *print_bus_trace)
                     flush_cycles = 1;
                     mem_stall[core_num] = 1;
                     mem_stall_count[core_num]++;
-                    *print_bus_trace = true;
+                    print_bus_trace = true;
                     return SUCCESS;
                 }
                 else// block in memory
@@ -564,7 +564,7 @@ Status mem(Core core_num, bool *print_bus_trace)
                     mem_stall[core_num]++;
                     mem_stall_count[core_num]++;
                     flush_cycles = FLUSH_TIME;
-                    *print_bus_trace = true;
+                    print_bus_trace = true;
                     return SUCCESS;
                 }
             }
@@ -574,7 +574,7 @@ Status mem(Core core_num, bool *print_bus_trace)
                 flush_cycles -= 1;
                 if (flush_cycles == 0)// check if next command on the bus is flush
                 {
-                    *print_bus_trace = true;
+                    print_bus_trace = true;
                     updated_bus.data = main_memory[updated_bus.addr];
                     tsram[core_num][cur_bus.addr & 0xff].MSI = SHARE;
                     tsram[core_num][cur_bus.addr & 0xff].tag = cur_bus.addr / 256;
@@ -606,7 +606,7 @@ Status mem(Core core_num, bool *print_bus_trace)
                     tsram[core_num][cur_bus.addr & 0xff].MSI = SHARE;
                     tsram[core_num][cur_bus.addr & 0xff].tag = cur_bus.addr / 256;
                     tsram[cur_bus.origid][cur_bus.addr].MSI = SHARE;
-                    *print_bus_trace = true;
+                    print_bus_trace = true;
                     mem_stall[core_num] = 1;
                     mem_stall_count[core_num]++;
                     flush_cycles -= 1;
@@ -636,7 +636,7 @@ Status mem(Core core_num, bool *print_bus_trace)
                 if (flush_cycles == 1 )//flush to the bus 
                 {
                     updated_bus.data = dsram[core_num][cur_bus.addr & 0xff];
-                    *print_bus_trace = true;
+                    print_bus_trace = true;
                     mem_stall[core_num] = 1;
                     mem_stall_count[core_num]++;
                     flush_cycles--;
@@ -757,7 +757,7 @@ Status mem(Core core_num, bool *print_bus_trace)
                     flush_cycles = 1;
                     mem_stall[core_num] = 1;
                     mem_stall_count[core_num]++;
-                    *print_bus_trace = true;
+                    print_bus_trace = true;
                     return SUCCESS;
                 }
                 else// the wanted block is in the main memory
@@ -765,7 +765,7 @@ Status mem(Core core_num, bool *print_bus_trace)
                     mem_stall[core_num]++;
                     mem_stall_count[core_num]++;
                     flush_cycles = FLUSH_TIME;
-                    *print_bus_trace = true;
+                    print_bus_trace = true;
                     return SUCCESS;
                 }
             }
@@ -775,7 +775,7 @@ Status mem(Core core_num, bool *print_bus_trace)
                 flush_cycles -= 1;
                 if (flush_cycles == 0)// check if next command on the bus is flush
                 {
-                    *print_bus_trace = true;
+                    print_bus_trace = true;
                     updated_bus.data = main_memory[cur_bus.addr];
                     tsram[core_num][cur_bus.addr & 0xff].MSI = MODIFIED;
                     tsram[core_num][cur_bus.addr & 0xff].tag = cur_bus.addr / 256;
@@ -807,7 +807,7 @@ Status mem(Core core_num, bool *print_bus_trace)
                     tsram[core_num][cur_bus.addr & 0xff].MSI = MODIFIED;
                     tsram[core_num][cur_bus.addr & 0xff].tag = cur_bus.addr / 256;
                     tsram[cur_bus.origid][cur_bus.addr].MSI = INVALID;
-                    *print_bus_trace = true;
+                    print_bus_trace = true;
                     mem_stall[core_num] = 1;
                     mem_stall_count[core_num]++;
                     if (tsram[core_num][address & 0xff].MSI == MODIFIED && pipeline[core_num][MEM].opcode == SC)

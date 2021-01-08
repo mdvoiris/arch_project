@@ -231,7 +231,7 @@ Status decode(Core core_num);
 
 Status execute(Core core_num);
 
-Status mem(Core core_num, bool *print_bus_trace);
+Status mem(Core core_num);
 
 Status write_back(Core core_num);
 
