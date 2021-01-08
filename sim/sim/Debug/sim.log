@@ -1,3 +1,5 @@
 ﻿  main.c
-C:\Users\Maor\source\repos\arch_project\sim\sim\main.c(853): warning C4715: 'mem': not all control paths return a value
-  sim.vcxproj -> C:\Users\Maor\source\repos\arch_project\sim\Debug\sim.exe
+C:\Users\haimpiche\Documents\ארכיטקטורה של מחשבים\git_project\sim\sim\main.c(844,43): warning C4047: '=': 'bool *' differs in levels of indirection from 'int'
+C:\Users\haimpiche\Documents\ארכיטקטורה של מחשבים\git_project\sim\sim\main.c(1037): warning C4715: 'sc_func': not all control paths return a value
+C:\Users\haimpiche\Documents\ארכיטקטורה של מחשבים\git_project\sim\sim\main.c(866): warning C4715: 'mem': not all control paths return a value
+  sim.vcxproj -> C:\Users\haimpiche\Documents\ארכיטקטורה של מחשבים\git_project\sim\Debug\sim.exe

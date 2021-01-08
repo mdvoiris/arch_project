@@ -17,7 +17,7 @@
 #define MEM_SIZE 1<<20
 #define CACHE_SIZE 256
 #define IMEM_SIZE 1024
-#define FLUSH_TIME 64
+#define FLUSH_TIME 65
 #define NOT_FOUND -1
 
 
@@ -111,7 +111,7 @@ typedef enum _bus_origid {
 	//CORE1,
 	//CORE2,
 	//CORE3,
-	MAIN_MEMORY
+	MAIN_MEMORY=4
 } Bus_origid;
 
 typedef enum _bus_cmd {
@@ -134,8 +134,8 @@ typedef struct _tsram {
 
 typedef enum _msi {
 	INVALID,
-	MODIFIED,
-	SHARE
+	SHARE,
+	MODIFIED
 }MSI;
 
 
@@ -178,8 +178,10 @@ int cycle = 0;
 int main_memory[MEM_SIZE] = { 0 };
 
 //Bus
-BUS bus = { 0 };
+BUS cur_bus = { 0 };
+BUS updated_bus = { 0 };
 int flush_cycles = 0;
+bool print_bus_trace = false;
 
 //Core status
 int pc[NUM_OF_CORES] = { 0 };
@@ -229,7 +231,7 @@ Status decode(Core core_num);
 
 Status execute(Core core_num);
 
-Status mem(Core core_num, bool print_bus_trace);
+Status mem(Core core_num, bool *print_bus_trace);
 
 Status write_back(Core core_num);
 
@@ -249,18 +251,20 @@ void print_trace(Core core_num, FILE* file);
 
 Status print_file(Arg file_enum);
 
-int search_address_cache();
+int search_address_cache(BUS* bus);
 
 bool free_access_bus(int core_num);
 
+void bus_response();
+
 void print_bus(FILE* bus_trace);
 
-void arrange_bus_load();
+//void arrange_bus_load();
 
-void arrange_bus_store();
+//void arrange_bus_store();
 
-void sc_func(int address, int core_num, int rd_value);
+bool sc_func(int address, int core_num, int rd_value);
 
-
+void advance_bus();
 
 #endif // __MAIN_H__
