@@ -237,8 +237,6 @@ Status write_back(Core core_num);
 
 Status advance_pipeline(Core core_num);
 
-Status cache_update();
-
 int detect_hazards(Core core_num, Pipe stage);
 
 bool branch_resolution(Core core_num, Instruction inst);

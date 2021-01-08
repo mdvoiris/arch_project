@@ -291,7 +291,7 @@ Status decode(Core core_num) {
         if ((pipeline[core_num][DECODE].opcode >= BEQ) && (pipeline[core_num][DECODE].opcode <= JAL))
             branch[core_num] = branch_resolution(core_num, pipeline[core_num][DECODE]);
     }
-    else
+    else if (mem_stall[core_num] == 0)
         decode_stall_count[core_num]++;
 
 
@@ -778,7 +778,6 @@ Status mem(Core core_num, bool *print_bus_trace)
                     *print_bus_trace = true;
                     updated_bus.data = main_memory[cur_bus.addr];
                     tsram[core_num][cur_bus.addr & 0xff].MSI = MODIFIED;
-                    printf("%d\n", core_num);
                     tsram[core_num][cur_bus.addr & 0xff].tag = cur_bus.addr / 256;
                     dsram[core_num][cur_bus.addr & 0xff] = cur_bus.data;
                     mem_stage[core_num] = CACHE_ACCESS;
