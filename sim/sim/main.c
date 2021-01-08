@@ -46,27 +46,27 @@ Status main(int argc, char* argv[]) {
     
     while ((core_done[CORE0] & core_done[CORE1] & core_done[CORE2] & core_done[CORE3]) == false) {
         if (core_done[CORE0] == false) {
-            status = core(CORE0, trace_files[CORE0], bus_trace);
+            status = core(CORE0, trace_files[CORE0]);
             if (status) goto EXIT;
         }
         if (core_done[CORE1] == false) {
-            status = core(CORE1, trace_files[CORE1], bus_trace);
+            status = core(CORE1, trace_files[CORE1]);
             if (status) goto EXIT;
         }
         if (core_done[CORE2] == false) {
-            status = core(CORE2, trace_files[CORE2], bus_trace);
+            status = core(CORE2, trace_files[CORE2]);
             if (status) goto EXIT;
         }
         if (core_done[CORE3] == false) {
-            status = core(CORE3, trace_files[CORE3], bus_trace);
+            status = core(CORE3, trace_files[CORE3]);
             if (status) goto EXIT;
         }
 
         cycle++;
 
+        advance_bus();
         if (print_bus_trace == true)
         {
-            advance_bus();
             print_bus(bus_trace);
             bus_response();
             advance_bus();
@@ -218,7 +218,7 @@ void init_pipeline() {
         }
 }
 
-Status core(Core core_num, FILE* trace_file, FILE* bus_trace) {
+Status core(Core core_num, FILE* trace_file) {
     Status status = INVALID_STATUS_CODE;
     
 
@@ -482,23 +482,23 @@ Status mem(Core core_num)
 
     get_reg_values(core_num, pipeline[core_num][MEM], &rd_value, &rs_value, &rt_value);
     address = rs_value + rt_value;
-    if (address < 0 || address >= MEM_SIZE)
-        return WRONG_ADDRESS;
     if ((pipeline[core_num][MEM].opcode != SC) && (pipeline[core_num][MEM].opcode != SW) && (pipeline[core_num][MEM].opcode != LL) && (pipeline[core_num][MEM].opcode != LW))//check if the opcode isn't load or store opcode
         return SUCCESS;
+    if (address < 0 || address >= MEM_SIZE)
+        return WRONG_ADDRESS;
     if ((pipeline[core_num][MEM].opcode == LL) || (pipeline[core_num][MEM].opcode == LW))//PrRd opcode
     {
         if (mem_stage[core_num] == CACHE_ACCESS)//  search in cache
         {
+            if ((pipeline[core_num][MEM].opcode == LL))//opcode is load linked
+            {
+                watch[core_num].address = address;
+                watch[core_num].sc_dirty = 0;
+            }
             if (tsram[core_num][(address) & 0xFF].tag == (address) / 256 && tsram[core_num][(address) & 0xFF].MSI != INVALID) // read hit
             {
                 read_hit_count[core_num] += 1;
                 updated_regs[core_num][pipeline[core_num][MEM].rd] = dsram[core_num][(address) & 0xFF];
-                if ((pipeline[core_num][MEM].opcode == LL))//opcode is load linked
-                {
-                    watch[core_num].address = address;
-                    watch[core_num].sc_dirty = 0;
-                }
                 return SUCCESS;
             }
             if (free_access_bus(core_num))//  it is read miss so check if the bus is accessible 
@@ -581,11 +581,11 @@ Status mem(Core core_num)
                     dsram[core_num][cur_bus.addr & 0xff] = updated_bus.data;
                     updated_regs[core_num][pipeline[core_num][MEM].rd] = dsram[core_num][cur_bus.addr & 0xff];
                     mem_stage[core_num] = CACHE_ACCESS;
-                    if ((pipeline[core_num][MEM].opcode == LL))//opcode is load linked
-                    {
-                        watch[core_num].address = address;
-                        watch[core_num].sc_dirty = 0;
-                    }
+                    //if ((pipeline[core_num][MEM].opcode == LL))//opcode is load linked
+                    //{
+                    //    watch[core_num].address = address;
+                    //    watch[core_num].sc_dirty = 0;
+                    //}
                     return SUCCESS;
                 }
                 else
@@ -610,11 +610,11 @@ Status mem(Core core_num)
                     mem_stall[core_num] = 1;
                     mem_stall_count[core_num]++;
                     flush_cycles -= 1;
-                    if ((pipeline[core_num][MEM].opcode == LL))//opcode is load linked
-                    {
-                        watch[core_num].address = address;
-                        watch[core_num].sc_dirty = 0;
-                    }
+                    //if ((pipeline[core_num][MEM].opcode == LL))//opcode is load linked
+                    //{
+                    //    watch[core_num].address = address;
+                    //    watch[core_num].sc_dirty = 0;
+                    //}
                     return SUCCESS;
                 }
                 if (flush_cycles == 0)//flush arrives to main memory and empty the updated_bus
@@ -646,6 +646,7 @@ Status mem(Core core_num)
                 {
                     main_memory[cur_bus.addr] = cur_bus.data;
                     updated_bus.cmd = NO_COMMAND;
+                    cur_bus.cmd = NO_COMMAND;
                     tsram[core_num][cur_bus.addr & 0xff].MSI = SHARE;
                     return SUCCESS;
                 }
@@ -825,6 +826,7 @@ Status mem(Core core_num)
                     main_memory[cur_bus.addr] = cur_bus.data;
                     mem_stage[core_num] = CACHE_ACCESS;
                     updated_bus.cmd = NO_COMMAND;
+                    cur_bus.cmd = NO_COMMAND;
                     return SUCCESS;
                 }
                /* else//waiting for the flush to arrive to the main memory
@@ -880,7 +882,7 @@ Status write_back(Core core_num) {
     if (pipeline[core_num][WRITE_BACK].opcode == JAL)
         cur_regs[core_num][15] = updated_regs[core_num][15];
 
-    else if ((pipeline[core_num][WRITE_BACK].opcode <= SRL) || (pipeline[core_num][WRITE_BACK].opcode == LW) || (pipeline[core_num][WRITE_BACK].opcode == LL)) {
+    else if ((pipeline[core_num][WRITE_BACK].opcode <= SRL) || (pipeline[core_num][WRITE_BACK].opcode == LW) || (pipeline[core_num][WRITE_BACK].opcode == LL) || (pipeline[core_num][WRITE_BACK].opcode == SC)) {
         cur_regs[core_num][pipeline[core_num][WRITE_BACK].rd] = updated_regs[core_num][pipeline[core_num][WRITE_BACK].rd];
     }
     instructions_count[core_num]++;

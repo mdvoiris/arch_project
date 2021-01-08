@@ -1,4 +1,1 @@
-﻿  main.c
-C:\Users\Maor\source\repos\arch_project\sim\sim\main.c(1036): warning C4715: 'sc_func': not all control paths return a value
-C:\Users\Maor\source\repos\arch_project\sim\sim\main.c(865): warning C4715: 'mem': not all control paths return a value
-  sim.vcxproj -> C:\Users\Maor\source\repos\arch_project\sim\Debug\sim.exe
+﻿  sim.vcxproj -> C:\Users\Maor\source\repos\arch_project\sim\Debug\sim.exe

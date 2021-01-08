@@ -223,7 +223,7 @@ Status init_main_memory();
 
 void init_pipeline();
 
-Status core(Core core_num, FILE* trace_file, FILE* bus_trace);
+Status core(Core core_num, FILE* trace_file);
 
 Status fetch(Core core_num);
 

@@ -4,5 +4,6 @@
     <LocalDebuggerCommandArguments>
     </LocalDebuggerCommandArguments>
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
+    <LocalDebuggerWorkingDirectory>C:\Users\Maor\source\repos\arch_project\counter</LocalDebuggerWorkingDirectory>
   </PropertyGroup>
 </Project>
