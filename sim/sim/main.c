@@ -151,7 +151,7 @@ Status print_file(Arg file_enum) {
     if (file_enum >= TSRAM0 && file_enum <= TSRAM3) {
         core = file_enum - TSRAM0;
         for (int i = 0; i < CACHE_SIZE; i++) {
-            fprintf(file, "%04X\n", ((tsram[core][i].MSI << 12) + tsram[core][i].tag));
+            fprintf(file, "%08X\n", ((tsram[core][i].MSI << 12) + tsram[core][i].tag));
         }
     }
     if (file_enum >= STATS0 && file_enum <= STATS3) {

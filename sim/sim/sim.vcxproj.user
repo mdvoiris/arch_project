@@ -4,6 +4,5 @@
     <LocalDebuggerCommandArguments>
     </LocalDebuggerCommandArguments>
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
-    <LocalDebuggerWorkingDirectory>..\..\mulserial</LocalDebuggerWorkingDirectory>
   </PropertyGroup>
 </Project>
