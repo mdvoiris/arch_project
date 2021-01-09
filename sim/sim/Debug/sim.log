@@ -1,2 +1,1 @@
-﻿  main.c
-  sim.vcxproj -> C:\Users\Maor\source\repos\arch_project\sim\Debug\sim.exe
+﻿C:\Users\haimpiche\Documents\ארכיטקטורה של מחשבים\git_project\sim\sim\sim.vcxproj : error MSB4025: The project file could not be loaded. Could not find file 'C:\Users\haimpiche\Documents\ארכיטקטורה של מחשבים\git_project\sim\sim\sim.vcxproj'.
