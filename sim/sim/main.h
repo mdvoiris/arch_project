@@ -17,7 +17,7 @@
 #define MEM_SIZE 1<<20
 #define CACHE_SIZE 256
 #define IMEM_SIZE 1024
-#define FLUSH_TIME 65
+#define FLUSH_TIME 64
 #define NOT_FOUND -1
 
 
