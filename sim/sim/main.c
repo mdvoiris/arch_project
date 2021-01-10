@@ -645,7 +645,7 @@ Status mem(Core core_num)
                 }
                 else if (pipeline[core_num][MEM].opcode == SC )
                 {                   
-                    if(sc_func(address, core_num, rd_value))
+                    if(sc_func(address, core_num))
                     {
                         write_hit_count[core_num] += 1;
                         dsram[core_num][address] = rd_value;
@@ -653,7 +653,7 @@ Status mem(Core core_num)
                     return SUCCESS;
                 }       
             }
-            if (free_access_bus(core_num) && ((pipeline[core_num][MEM].opcode == SW) || (pipeline[core_num][MEM].opcode == SC && sc_func(address, core_num, rd_value))))// write miss so check if the bus is accessible 
+            if (free_access_bus(core_num) && ((pipeline[core_num][MEM].opcode == SW) || (pipeline[core_num][MEM].opcode == SC && sc_func(address, core_num))))// write miss so check if the bus is accessible 
             {
                 mem_stage[core_num] = BUS_ACCESS;
                 write_miss_count[core_num]++;
@@ -661,7 +661,7 @@ Status mem(Core core_num)
                 mem_stall_count[core_num]++;
                 return SUCCESS;
             }
-            else if ((pipeline[core_num][MEM].opcode == SW) || (pipeline[core_num][MEM].opcode == SC && sc_func(address, core_num, rd_value)))// the bus not accessible  the core needs to wait
+            else if ((pipeline[core_num][MEM].opcode == SW) || (pipeline[core_num][MEM].opcode == SC && sc_func(address, core_num)))// the bus not accessible  the core needs to wait
             {
                 write_miss_count[core_num]++;
                 mem_stall[core_num] = 1;
@@ -925,7 +925,7 @@ void bus_response()
 
 
 
-bool sc_func(int address, int core_num, int rd_value)
+bool sc_func(int address, int core_num)
 {
    
     for (int i = 0; i < NUM_OF_CORES; i++) {
