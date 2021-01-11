@@ -7,30 +7,29 @@ Status main(int argc, char* argv[]) {
     FILE* trace_files[NUM_OF_CORES] = { NULL };
     FILE* bus_trace = NULL;
 
-    //initialize watch
-    watch[CORE0].address = -1;
-    watch[CORE1].address = -1;
-    watch[CORE2].address = -1;
-    watch[CORE3].address = -1;
 
-
-    //Check for correct input argument count
+    //Check for correct input argument count (or no arguments)
     if (argc != ARG_COUNT) {
         if (argc != 1) {
             printf("Error - got %d arguments, expecting %d", argc, ARG_COUNT);
             return WRONG_ARGUMENT_COUNT;
         }
     }
+    //If correct argument count, update file names
     else update_args(argv);
     
+    //Read imem files and stores them in global imem array
     status = init_imems();
     if (status) goto EXIT;
 
+    //Reads memin file and store it in global main_memory array
     status = init_main_memory();
     if (status) goto EXIT;
 
+    //Initiate global pipeline array (and watch for sc/ll) with invalid (-1) values
     init_pipeline();
 
+    //Open bustrace and coreXtrace for writing
     fopen_s(&bus_trace, args[BUSTRACE], "w");
     if (bus_trace == NULL) {
         status = FOPEN_FAIL;
@@ -44,38 +43,49 @@ Status main(int argc, char* argv[]) {
         }
     }
     
+    //Main loop 
+    //foreach clock cycle until all cores are done
     while ((core_done[CORE0] & core_done[CORE1] & core_done[CORE2] & core_done[CORE3]) == false) {
+        //Do CORE0 operations
         if (core_done[CORE0] == false) {
             status = core(CORE0, trace_files[CORE0]);
             if (status) goto EXIT;
         }
+        //Do CORE1 operations
         if (core_done[CORE1] == false) {
             status = core(CORE1, trace_files[CORE1]);
             if (status) goto EXIT;
         }
+        //Do CORE2 operations
         if (core_done[CORE2] == false) {
             status = core(CORE2, trace_files[CORE2]);
             if (status) goto EXIT;
         }
+        //Do CORE3 operations
         if (core_done[CORE3] == false) {
             status = core(CORE3, trace_files[CORE3]);
             if (status) goto EXIT;
         }
 
+        //Simulating bus as a flipflop advencing D->Q
         advance_bus();
 
+        //On every cycle we need to update bus trace
         if (print_bus_trace == true)
         {
+            //print current bus to bustrace
             print_bus(bus_trace);
+            //acts as a bus snoop to identify block in caches and cleans bus after flush
             bus_response();
+            //Simulating bus as a flipflop advencing D->Q
             advance_bus();
             print_bus_trace = false;
         }
 
         cycle++;
-
     }
 
+    //Close bustrace and coreXtrace
     fclose(bus_trace);
     bus_trace = NULL;
 
@@ -84,26 +94,31 @@ Status main(int argc, char* argv[]) {
         trace_files[i] = NULL;
     }
 
+    //print memout
     status = print_file(MEMOUT);
     if (status) goto EXIT;
 
     for (int i = 0; i < NUM_OF_CORES; i++) {
+        //print regoutX
         status = print_file(REGOUT0 + i);
         if (status) goto EXIT;
 
+        //print dsramX
         status = print_file(DSRAM0 + i);
         if (status) goto EXIT;
 
+        //print tsramX
         status = print_file(TSRAM0 + i);
         if (status) goto EXIT;
 
+        //print statsX
         status = print_file(STATS0 + i);
         if (status) goto EXIT;
     }
 
 	return SUCCESS;
 
-
+    //Emergency EXIT
 EXIT:
     for (int i = 0; i < NUM_OF_CORES; i++)
         if (trace_files[i] != NULL) {
@@ -126,6 +141,7 @@ Status print_file(Arg file_enum) {
     char* file_name = args[file_enum];
     FILE* file = NULL;
     Core core;
+
 
     fopen_s(&file, file_name, "w");
     if (file == NULL)
@@ -211,7 +227,7 @@ Status init_main_memory() {
 }
 
 void init_pipeline() {
-    for (int core = CORE0; core < NUM_OF_CORES; core++)
+    for (int core = CORE0; core < NUM_OF_CORES; core++) {
         for (int i = 0; i < PIPE_LEN; i++) {
             pipeline[core][i].pc = -1;
             pipeline[core][i].opcode = -1;
@@ -220,38 +236,50 @@ void init_pipeline() {
             pipeline[core][i].rt = -1;
             pipeline[core][i].imm = -1;
         }
+        //initialize watch for sc/ll
+        watch[core].address = -1;
+    }
 }
 
 Status core(Core core_num, FILE* trace_file) {
     Status status = INVALID_STATUS_CODE;
     
+    //No more imem left, terminate core
     if (pc[core_num] == 1024) {
         core_done[core_num] = true;
         return SUCCESS;
     }
 
+    //If there're no stalls
     if (decode_stall[core_num] == 0 && mem_stall[core_num] == 0) {
+        //FETCH
         status = fetch(core_num);
         if (status) return status;
     }
 
-    status = decode(core_num);
-    if (status) return status;
-
+    //If there're no mem stalls
     if (mem_stall[core_num] == 0) {
+        //DECODE
+        status = decode(core_num);
+        if (status) return status;
+
+        //EXECUTE
         status = execute(core_num);
         if (status) return status;
     }
 
-
+    //MEM
     status = mem(core_num);
     if (status) return status;
 
+    //print trace line, before WB (WB updates registers)
     print_trace(core_num, trace_file);
 
+    //WRITE_BACK
     status = write_back(core_num);
     if (status) return status;
 
+    //Advance pipeline stages for which there were no stalls
     status = advance_pipeline(core_num);
     if (status) return status;
 
@@ -261,11 +289,13 @@ Status core(Core core_num, FILE* trace_file) {
 Status fetch(Core core_num) {
     Status status = INVALID_STATUS_CODE;
 
+    //Halt called, termination proccess
     if (pc[core_num] == -1) {
         pipeline[core_num][FETCH].pc = -1;
         return SUCCESS;
     }
 
+    //Update global pipeline array with the new instruction from imem
     pipeline[core_num][FETCH].pc     = pc[core_num];
     pipeline[core_num][FETCH].opcode = (imem[core_num][pc[core_num]] & 0xff000000) >> 24;
     pipeline[core_num][FETCH].rd     = (imem[core_num][pc[core_num]] & 0x00f00000) >> 20;
@@ -274,6 +304,7 @@ Status fetch(Core core_num) {
     pipeline[core_num][FETCH].imm    = imem[core_num][pc[core_num]] & 0x00000800 ? 
                                         (-1 * ((~imem[core_num][pc[core_num]] + 1) & 0x00000fff)) : (imem[core_num][pc[core_num]] & 0x00000fff);
 
+    //Error handling
     if ((pipeline[core_num][FETCH].opcode < ADD) || (pipeline[core_num][FETCH].opcode > HALT))
         return WRONG_OPCODE;
     if (pipeline[core_num][FETCH].rd > (NUM_OF_REGS-1))
@@ -289,18 +320,22 @@ Status fetch(Core core_num) {
 Status decode(Core core_num) {
     Status status = INVALID_STATUS_CODE;
 
+    //Halt called or instructions didn't reach decode yet
     if ((pipeline[core_num][DECODE].opcode == HALT) || (pipeline[core_num][DECODE].pc == -1)) {
         return SUCCESS;
     }
 
+    //Searches foe RAW hazards and updates decode stall
     decode_stall[core_num] = detect_hazards(core_num, DECODE);
 
+    //No stalls -> do branch resolusion for branch opcodes
     if (decode_stall[core_num] == 0) {
         if ((pipeline[core_num][DECODE].opcode >= BEQ) && (pipeline[core_num][DECODE].opcode <= JAL))
+            //update global branch array with true/false for taken/not-taken
             branch[core_num] = branch_resolution(core_num, pipeline[core_num][DECODE]);
     }
-    else if (mem_stall[core_num] == 0)
-        decode_stall_count[core_num]++;
+    //else count it
+    else decode_stall_count[core_num]++;
 
 
     return SUCCESS;
@@ -309,6 +344,7 @@ Status decode(Core core_num) {
 int detect_hazards(Core core_num, Pipe stage) {
     int hazard_potential[3] = { 0 };
 
+    //look for registers with hazard potential for the current instruction
     if (pipeline[core_num][stage].opcode == JAL) {
         hazard_potential[0] = pipeline[core_num][stage].rd;
     }
@@ -322,16 +358,24 @@ int detect_hazards(Core core_num, Pipe stage) {
         hazard_potential[2] = pipeline[core_num][stage].rt;
     }
 
+    //foreach hazard potential
     for (int i = 0; i < 3; i++) {
+        //if reg is $imm or $zero, ignore
         if ((hazard_potential[i] == 0) || (hazard_potential[i] == 1))
             continue;
+
+        //look in the next pipeline stages, return the neccessary decode stall
         for (int j = stage + 1; j < PIPE_LEN; j++) {
+            //ignore '---' of any kind
             if (pipeline[core_num][j].pc == -1) continue;
 
+            //for JAL hazard is only $r15
             if ((pipeline[core_num][j].opcode == JAL) && (hazard_potential[i] == 15))
                 return (WRITE_BACK - j + 1);
 
+            //for rd writing operations
             else if ((pipeline[core_num][j].opcode < BEQ) || (pipeline[core_num][j].opcode == LW) || (pipeline[core_num][j].opcode == LL) || (pipeline[core_num][j].opcode == SC)) {
+                //if rd is the same as the hazard potential
                 if (hazard_potential[i] == pipeline[core_num][j].rd)
                     return (WRITE_BACK - j + 1);
             }
@@ -346,9 +390,10 @@ bool branch_resolution(Core core_num, Instruction inst) {
     int rs_value;
     int rt_value;
 
-
+    //get reg values for the instruction
     get_reg_values(core_num, inst, &rd_value, &rs_value, &rt_value);
 
+    //for branch opcode, if branch taken, update pc and return branch taken
     switch (inst.opcode) {
     case BEQ: {
         if (rs_value == rt_value) {
@@ -398,10 +443,14 @@ bool branch_resolution(Core core_num, Instruction inst) {
     }
     }
 
+    //return branch not taken
     return false;
 }
 
 void get_reg_values(Core core_num, Instruction inst, int* rd_value, int* rs_value, int* rt_value) {
+    //If reg is $imm reg value is the immediate
+    //otherwise get the actual reg value
+
     if (inst.rd == 1) *rd_value = inst.imm;
     else *rd_value = cur_regs[core_num][inst.rd];
 
@@ -420,13 +469,16 @@ Status execute(Core core_num) {
     int rs_value;
     int rt_value;
 
-
+    //if halt called or instruction didn't reach execute yet
     if ((pipeline[core_num][EXECUTE].opcode == HALT) || (pipeline[core_num][EXECUTE].pc == -1)) {
         return SUCCESS;
     }
 
+    //get reg values for the instruction
     get_reg_values(core_num, pipeline[core_num][EXECUTE], &rd_value, &rs_value, &rt_value);
 
+
+    //calculate the result value the instruction and update updated_regs
     switch (pipeline[core_num][EXECUTE].opcode) {
     case ADD: {
         updated_regs[core_num][pipeline[core_num][EXECUTE].rd] = rs_value + rt_value;
@@ -480,21 +532,32 @@ Status mem(Core core_num)
     int rt_value;
     int address;
 
-
+    //if halt called or instruction didn't reach mem yet
     if ((pipeline[core_num][MEM].opcode == HALT) || (pipeline[core_num][MEM].pc == -1)) {
         return SUCCESS;
     }
 
+    //decrement mem stall if exists
     if (mem_stall[core_num] > 0) {
         mem_stall[core_num]--;
     }
-
-    get_reg_values(core_num, pipeline[core_num][MEM], &rd_value, &rs_value, &rt_value);
-    address = rs_value + rt_value;
+    
+    //continue if not a mem operation
     if ((pipeline[core_num][MEM].opcode != SC) && (pipeline[core_num][MEM].opcode != SW) && (pipeline[core_num][MEM].opcode != LL) && (pipeline[core_num][MEM].opcode != LW))//check if the opcode isn't load or store opcode
         return SUCCESS;
+
+    //get reg values for the instruction
+    get_reg_values(core_num, pipeline[core_num][MEM], &rd_value, &rs_value, &rt_value);
+
+    //calculate address
+    address = rs_value + rt_value;
+
+    //error handling
     if (address < 0 || address >= MEM_SIZE)
         return WRONG_ADDRESS;
+
+
+    //Start of State machine
     if ((pipeline[core_num][MEM].opcode == LL) || (pipeline[core_num][MEM].opcode == LW))//PrRd opcode
     {
         if (mem_stage[core_num] == CACHE_ACCESS)//  search in cache
@@ -794,15 +857,18 @@ Status mem(Core core_num)
 Status write_back(Core core_num) {
     Status status = INVALID_STATUS_CODE;
 
+    //if halt, terminate core
     if (pipeline[core_num][WRITE_BACK].opcode == HALT) {
         core_done[core_num] = true;
         cycles_count[core_num] = cycle + 1;
         instructions_count[core_num]++;
         return SUCCESS;
     }
+    //instruction didn't reach yet
     else if (pipeline[core_num][WRITE_BACK].pc == -1)
         return SUCCESS;
 
+    //Updates cur_regs with updated_regs
     if (pipeline[core_num][WRITE_BACK].opcode == JAL)
         cur_regs[core_num][15] = updated_regs[core_num][15];
 
@@ -817,12 +883,13 @@ Status write_back(Core core_num) {
 Status advance_pipeline(Core core_num) {
     Status status = INVALID_STATUS_CODE;
 
-
+    //if halt reached decode, terminate instruction in fetch and signal fetch stage with pc = -1
     if (pipeline[core_num][DECODE].opcode == HALT) {
         pc[core_num] = -1;
         pipeline[core_num][FETCH].pc = -1;
     }
 
+    //advance pipeline stages and insert NOP's on stalls
     pipeline[core_num][WRITE_BACK].pc = -1;
     if (mem_stall[core_num] == 0) {
         advance_stage(core_num, MEM, WRITE_BACK);
@@ -838,7 +905,7 @@ Status advance_pipeline(Core core_num) {
         }
     }
     
-
+    //reset branch signal
     if (branch[core_num])
         branch[core_num] = false;
 
@@ -861,8 +928,6 @@ void advance_stage(Core core_num, Pipe from, Pipe to) {
     pipeline[core_num][to].rt       = pipeline[core_num][from].rt;
     pipeline[core_num][to].imm      = pipeline[core_num][from].imm;
     pipeline[core_num][to].pc       = pipeline[core_num][from].pc;
-
-    return;
 }
 
 void print_trace(Core core_num, FILE* file) {
