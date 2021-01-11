@@ -107,10 +107,10 @@ typedef enum _opcode {
 } Opcode;
 
 typedef enum _bus_origid {
-	//CORE0,
-	//CORE1,
-	//CORE2,
-	//CORE3,
+	//CORE0, //same as Core enum
+	//CORE1, //same as Core enum
+	//CORE2, //same as Core enum
+	//CORE3, //same as Core enum
 	MAIN_MEMORY=4
 } Bus_origid;
 
@@ -127,18 +127,19 @@ typedef enum _mem_stage {
 	BUS_ACCESS
 } Mem_stage;
 
-typedef struct _tsram {
-	int MSI;
-	int tag;
-}TSRAM;
-
 typedef enum _msi {
 	INVALID,
 	SHARE,
 	MODIFIED
 }MSI;
 
+//type used for tsram
+typedef struct _tsram {
+	int MSI;
+	int tag;
+}TSRAM;
 
+//type used for bus interface
 typedef struct _bus {
 	Bus_origid origid;
 	Bus_cmd cmd;
@@ -146,6 +147,7 @@ typedef struct _bus {
 	int data;
 }BUS;
 
+//type used for instructions currently in pipeline
 typedef struct _instruction {
 	int opcode;
 	int rd;
@@ -155,6 +157,7 @@ typedef struct _instruction {
 	int pc;
 }Instruction;
 
+//type used for sc/ll handling
 typedef struct _load_store_conditional {
 	int address;
 	bool sc_dirty;
@@ -215,40 +218,56 @@ int abort_cache=-1;
 
 
 //Function Handles:
+//Updates global args array with given arguments
 void update_args(char* argv[]);
 
+//Reads imem files and stores them in global imem array
 Status init_imems();
 
+//Reads memin file and stores it in global main_memory array
 Status init_main_memory();
 
+//Initiates global pipeline array (and watch for sc/ll) with invalid (-1) values
 void init_pipeline();
 
+//Simulates a single core operation for a single cycle
 Status core(Core core_num, FILE* trace_file);
 
+//Updates global pipeline array with the instruction from imem for the current pc
 Status fetch(Core core_num);
 
+//Detects RAW hazards and stalls if neccessary, does branch resolusion
 Status decode(Core core_num);
 
+//Updates the updated_regs array with the regs after the execution of the command
 Status execute(Core core_num);
 
 //input core number and implementing MSI protocol per cycle
-//returns if the action succeds or if somthing went wrong
+//returns if the action succeds or if something went wrong
 Status mem(Core core_num);
 
+//updates cur_regs with updated_regs
 Status write_back(Core core_num);
 
+//Advances pipeline stages and insert NOP's on stalls
 Status advance_pipeline(Core core_num);
 
+//Looks for RAW hazards and returns number of decode stalls
 int detect_hazards(Core core_num, Pipe stage);
 
+//Checks if branches taken and updates pc if so, returns true for taken and false otherwise
 bool branch_resolution(Core core_num, Instruction inst);
 
+//updates rd,rs,rt values for an instruction, interprets $imm
 void get_reg_values(Core core_num, Instruction inst, int* rd_value, int* rs_value, int* rt_value);
 
+//move pipeline stage on core from one stage to another
 void advance_stage(Core core_num, Pipe from, Pipe to);
 
+//write current trace line
 void print_trace(Core core_num, FILE* file);
 
+//writes output file according to file_enum
 Status print_file(Arg file_enum);
 
 //input is the bus and it checks if there is a block in another core wich is modified and has the wanted address
