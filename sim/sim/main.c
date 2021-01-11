@@ -142,6 +142,7 @@ Status print_file(Arg file_enum) {
     FILE* file = NULL;
     Core core;
 
+
     fopen_s(&file, file_name, "w");
     if (file == NULL)
         return FOPEN_FAIL;
